@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Model Verification Suite
-# Comprehensive test suite for verifying model compatibility with llmlb engines
+# Comprehensive test suite for verifying model compatibility with xLLM engines
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
