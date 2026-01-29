@@ -41,7 +41,7 @@ LLM Load Balancer はマネージャ方式のマルチエンジン構成をサ�
 | **gpt-oss (MoE + MXFP4)** | 実装済み | `mlp.router.*` と `mlp.experts.*_(blocks\|scales\|bias)` を読み込む |
 | **nemotron3 (Mamba-Transformer MoE)** | 準備済み（未統合） | まだforwardパスに接続されていない |
 
-詳細・更新履歴は `specs/SPEC-69549000/spec.md` を参照。
+詳細・更新履歴は `specs/` を参照（モデル仕様: `specs/SPEC-48678000/`, `specs/SPEC-93536000/`）。
 
 ### GGUF アーキテクチャ例（llama.cpp）
 

@@ -43,7 +43,7 @@ for migration steps.
 | **gpt-oss (MoE + MXFP4)** | Implemented | Uses `mlp.router.*` and `mlp.experts.*_(blocks\|scales\|bias)` with MoE forward |
 | **nemotron3 (Mamba-Transformer MoE)** | Staged (not wired) | Not connected to the forward pass yet |
 
-See `specs/SPEC-69549000/spec.md` for the authoritative list and updates.
+See `specs/` for feature specs (model resolution/routing: `specs/SPEC-48678000/`, `specs/SPEC-93536000/`).
 
 ### GGUF Architecture Coverage (llama.cpp, Examples)
 
