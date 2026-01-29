@@ -77,7 +77,7 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **ダウンロード失敗時**: レジュームなし、最初からやり直し
 - **部分ダウンロードファイル**: 再起動時に自動削除
 - **破損ファイル検出時**: 確認プロンプトを表示（自動再ダウンロードはしない）
-- **保存先**: `~/.models/`（`XLLM_MODELS_DIR` でカスタマイズ可能）
+- **保存先**: `~/.xllm/models/`（`XLLM_MODELS_DIR` でカスタマイズ可能）
 - **整合性検証**: ダウンロード時のみSHA256チェック
 - **PGP署名検証**: HuggingFaceの署名検証をサポート
 - **メタデータキャッシュ**: モデルメタデータをキャッシュして高速化
@@ -116,12 +116,12 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **Capabilities検出**: GGUFメタデータ + HuggingFaceカタログの両方から取得
 - **推論パラメータ**: Modelfileでデフォルト値を設定可能
 - **Dynamic LoRA**: 実行時にLoRAアダプターをロード可能
-  - **保存先**: `~/.loras/`
+  - **保存先**: `~/.xllm/loras/`
   - **指定方法**: リクエストパラメータで指定（自動ロード）
   - **複数LoRA**: サポート（マージして適用）
   - **スケール**: 指定可能（例: `{"lora": "name", "scale": 0.5}`）
 - **KVキャッシュ永続化**: ディスクへのKVキャッシュ保存をサポート
-  - **保存先**: `~/.cache/`
+  - **保存先**: `~/.xllm/cache/`
   - **保存タイミング**: リクエスト完了毎に差分保存
 
 ### FR-005: Function Calling
@@ -135,7 +135,7 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **バックエンド**: stable-diffusion.cpp（vendor/stable-diffusion.cpp）
 - **モデル形式**: stable-diffusion.cppのデフォルトに従う
 - **Storage**: ローカルファイル + URL配信
-  - 保存先: `~/.images/`
+  - 保存先: `~/.xllm/images/`
   - 配信: `http://localhost:32769/images/xxx.png`
 - **レスポンス形式**: OpenAI互換（response_formatでurl/b64_json選択可能）
 - **TTL**: 1時間後に自動削除
@@ -210,7 +210,7 @@ llama3:8b     abc123def     4.7 GB    100% GPU     4 minutes from now
 
 - **マルチモーダル**: `/image /path/to/img.png` でファイルパス指定
 - **マルチライン入力**: ヒアドキュメント形式（`<<<EOF` ... `EOF`）
-- **ヒストリー**: `~/.history` に保存
+- **ヒストリー**: `~/.xllm/history` に保存
 
 ### show コマンド
 
@@ -253,13 +253,13 @@ llama3:8b     abc123def     4.7 GB    100% GPU     4 minutes from now
 
 ### config.yaml
 
-場所: `~/.config.yaml`
+場所: `~/.xllm/config.yaml`
 
 ```yaml
 server:
   port: 32769
   host: 0.0.0.0
-  log_file: ~/.logs/xllm.log
+  log_file: ~/.xllm/logs/xllm.log
   log_rotation:
     max_size: 100MB
     max_files: 10
@@ -272,7 +272,7 @@ server:
   gzip: true
 
 models:
-  directory: ~/.models
+  directory: ~/.xllm/models
   preload:
     - llama3:8b
     - mistral:7b
@@ -280,7 +280,7 @@ models:
     llama3:8b: high
 
 images:
-  directory: ~/.images
+  directory: ~/.xllm/images
   ttl_hours: 1
 
 gpu:
@@ -293,7 +293,7 @@ inference:
 
 ### Modelfile（Ollama完全互換）
 
-場所: `~/.Modelfiles/<model>/Modelfile`
+場所: `~/.xllm/Modelfiles/<model>/Modelfile`
 
 サポートする命令:
 

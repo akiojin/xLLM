@@ -12,11 +12,11 @@
 
 ## 対象コンポーネント
 
-- `src/api/openai_endpoints.cpp`
-- `src/api/node_endpoints.cpp`
-- `tests/contract/openai_api_test.cpp`
-- `tests/integration/openai_endpoints_test.cpp`
-- `tests/integration/node_endpoints_test.cpp`
+- `xllm/src/api/openai_endpoints.cpp`
+- `xllm/src/api/node_endpoints.cpp`
+- `xllm/tests/contract/openai_api_test.cpp`
+- `xllm/tests/integration/openai_endpoints_test.cpp`
+- `xllm/tests/integration/node_endpoints_test.cpp`
 
 ## フェーズ
 
