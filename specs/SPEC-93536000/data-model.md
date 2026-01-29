@@ -14,7 +14,7 @@
 
 ### GpuBackend 列挙型
 
-ノードのGPUバックエンド種別を表す。**ノード側のみで使用**。
+ノードのGPUバックエンド種別を表す。**xLLMランタイム側のみで使用**。
 
 **ファイル**: `node/src/system/gpu_detector.hpp`
 
@@ -49,9 +49,9 @@
 
 **変更なし** - executable_modelsはメモリのみで管理
 
-## プラットフォーム文字列（ノード側）
+## プラットフォーム文字列（xLLMランタイム側）
 
-モデルの `platforms` フィールドで使用される文字列（ノード側のみ）:
+モデルの `platforms` フィールドで使用される文字列（xLLMランタイム側のみ）:
 
 | 文字列 | 対応 GpuBackend |
 |--------|----------------|
@@ -62,7 +62,7 @@
 | `linux-rocm` | `ROCm` |
 | `cpu` | `Cpu` |
 
-## GPU互換性判定ロジック（ノード側）
+## GPU互換性判定ロジック（xLLMランタイム側）
 
 ```text
 isCompatible(model, backend):
