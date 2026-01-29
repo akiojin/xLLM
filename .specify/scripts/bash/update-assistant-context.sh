@@ -247,8 +247,8 @@ get_commands_for_language() {
         *"Python"*)
             echo "cd src && pytest && ruff check ."
             ;;
-        *"Rust"*)
-            echo "cargo test && cargo clippy"
+        *"C++"*|*"Cxx"*|*"Cpp"*)
+            echo "cmake -S . -B build -DPORTABLE_BUILD=ON && cmake --build build --config Release && ctest --output-on-failure --timeout 300 --verbose"
             ;;
         *"JavaScript"*|*"TypeScript"*)
             echo "npm test \\&\\& npm run lint"

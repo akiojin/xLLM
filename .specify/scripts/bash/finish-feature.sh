@@ -148,8 +148,8 @@ $(git log origin/main..HEAD --oneline --no-merges | head -10)
 ### 並列実行されるチェック（5つ）
 
 1. **tasks-check**: tasks.mdの全タスク完了チェック
-2. **rust-test**: Rustテスト実行（ubuntu-latest, windows-latest）
-3. **rust-lint**: Rust lintチェック（\`cargo fmt --check\`, \`cargo clippy\`）
+2. **cpp-test**: C++テスト実行（ubuntu-latest）
+3. **cpp-build**: C++ビルド（cmake configure/build）
 4. **commitlint**: コミットメッセージ検証（Conventional Commits準拠）
 5. **markdownlint**: マークダウンファイルlint
 
@@ -197,8 +197,8 @@ $(git log origin/main..HEAD --oneline --no-merges | head -10)
 ### 並列実行されるチェック（5つ）
 
 1. **tasks-check**: tasks.mdの全タスク完了チェック
-2. **rust-test**: Rustテスト実行（ubuntu-latest, windows-latest）
-3. **rust-lint**: Rust lintチェック（\`cargo fmt --check\`, \`cargo clippy\`）
+2. **cpp-test**: C++テスト実行（ubuntu-latest）
+3. **cpp-build**: C++ビルド（cmake configure/build）
 4. **commitlint**: コミットメッセージ検証（Conventional Commits準拠）
 5. **markdownlint**: マークダウンファイルlint
 
