@@ -202,8 +202,8 @@
 
 | アーキテクチャ | 状態 | 実装根拠 | 備考 |
 |--------------|------|----------|------|
-| **gpt-oss (MoE + MXFP4)** | 実装済み | `xllm/third_party/safetensors.cpp/src/ggml_model.cpp`, `xllm/third_party/safetensors.cpp/src/transformer.cpp` | `mlp.router.*` / `mlp.experts.*_(blocks\|scales\|bias)` の読み込みとMoE forwardを含む |
-| **nemotron3 (Mamba-Transformer MoE)** | 実装済み（未統合） | `xllm/third_party/safetensors.cpp/src/arch/nemotron3.*`, `mamba.*`, `moe.*`, `gqa.*` | forwardパスとの統合が未実施 |
+| **gpt-oss (MoE + MXFP4)** | 実装済み | `third_party/safetensors.cpp/src/ggml_model.cpp`, `third_party/safetensors.cpp/src/transformer.cpp` | `mlp.router.*` / `mlp.experts.*_(blocks\|scales\|bias)` の読み込みとMoE forwardを含む |
+| **nemotron3 (Mamba-Transformer MoE)** | 実装済み（未統合） | `third_party/safetensors.cpp/src/arch/nemotron3.*`, `mamba.*`, `moe.*`, `gqa.*` | forwardパスとの統合が未実施 |
 
 **備考**:
 

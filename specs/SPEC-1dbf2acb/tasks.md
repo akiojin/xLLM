@@ -25,7 +25,7 @@
 ### Core
 
 - [x] T104: serve コマンド実装（main.cppでrun_node呼び出し）
-- [x] T105: config.json パーサー実装（~/.xllm/config.json対応）
+- [x] T105: config.json パーサー実装（~/.config.json対応）
 - [x] T106: シグナルハンドリング実装（SIGINT/SIGTERM, main.cpp）
 - [x] T107: --port, --host オプション対応（cli.cpp）
 
