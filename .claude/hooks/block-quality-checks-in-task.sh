@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Claude Code PreToolUse Hook: Block quality check commands in Task tool
-# Task toolでcargo fmt, cargo clippy, cargo test, make quality-checks等の品質チェックコマンドを
+# Task toolでcmake, ctest などの品質チェックコマンド等の品質チェックコマンドを
 # 実行するとコンテキストを大量消費するため、ブロックします。
 # これらのコマンドは直接Bashツールで出力制限付きで実行してください。
 
@@ -58,9 +58,9 @@ prompt_lower=$(echo "$prompt" | tr '[:upper:]' '[:lower:]')
 
 # ブロックするパターン
 blocked_patterns=(
-    "cargo fmt"
-    "cargo clippy"
-    "cargo test"
+    "cmake --build"
+    "ctest"
+    "cmake -S"
     "make quality"
     "quality-checks"
     "markdownlint"
@@ -74,7 +74,7 @@ for pattern in "${blocked_patterns[@]}"; do
 {
   "decision": "block",
   "reason": "🚫 Quality check commands should not be run via Task tool",
-  "stopReason": "品質チェックコマンド ($pattern) は Task tool で実行するとコンテキストを大量消費します。代わりに直接 Bash ツールで出力制限付きで実行してください。例: cargo fmt --check > /dev/null 2>&1 && echo '✓ fmt OK' || echo '✗ fmt FAIL'"
+  "stopReason": "品質チェックコマンド ($pattern) は Task tool で実行するとコンテキストを大量消費します。代わりに直接 Bash ツールで出力制限付きで実行してください。例: cmake -S . -B build -DPORTABLE_BUILD=ON > /dev/null 2>&1 && echo '✓ cmake configure OK' || echo '✗ cmake configure FAIL'"
 }
 EOF
         echo "🚫 Blocked: Task tool with quality check command ($pattern)" >&2

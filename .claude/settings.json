@@ -40,7 +40,7 @@
     "pr-review-toolkit@claude-plugins-official": true,
     "playwright@claude-plugins-official": true,
     "clangd-lsp@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": false,
     "drawio@akiojin-skills": true,
     "ralph-wiggum@claude-plugins-official": true,
     "ralph-loop@claude-plugins-official": true,

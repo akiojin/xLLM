@@ -6,13 +6,5 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
-# Run a lightweight local gate; full checks belong in CI/pre-push.
-branch_name=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-case "$branch_name" in
-  feature/SPEC-[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9])
-    make quality-checks-pre-commit
-    ;;
-  *)
-    make quality-checks-pre-commit
-    ;;
-esac
+# Lightweight check before commit
+bash .specify/scripts/checks/check-compile.sh

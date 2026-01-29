@@ -35,7 +35,7 @@
 **言語/バージョン**: [例: Python 3.11, Swift 5.9, Rust 1.75 または 要明確化]
 **主要依存関係**: [例: FastAPI, UIKit, LLVM または 要明確化]
 **ストレージ**: [該当する場合、例: PostgreSQL, CoreData, files または N/A]
-**テスト**: [例: pytest, XCTest, cargo test または 要明確化]
+**テスト**: [例: pytest, XCTest, ctest または 要明確化]
 **対象プラットフォーム**: [例: Linuxサーバー, iOS 15+, WASM または 要明確化]
 **プロジェクトタイプ**: [single/web/mobile - ソース構造を決定]
 **パフォーマンス目標**: [ドメイン固有、例: 1000 req/s, 10k lines/sec, 60 fps または 要明確化]

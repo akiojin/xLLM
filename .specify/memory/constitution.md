@@ -72,7 +72,7 @@ Follow-up TODOs: なし
 - **対象**: GitHub Actionsワークフロー、リリーススクリプト、CI/CDパイプライン
 - **理由**: ローカル環境でのユニットテストが実質不可能（GitHub Actions環境依存）
 - **代替検証**:
-  - 品質チェックワークフロー (cargo test, clippy, fmt, commitlint, markdownlint)
+  - 品質チェックワークフロー (cmake build, ctest, commitlint, markdownlint)
   - 実際のPR作成→品質チェック→マージの統合テスト
   - 実リリースフローでの動作確認
 - **必須条件**:
@@ -197,9 +197,9 @@ Follow-up TODOs: なし
 
 ### 必須チェック
 
-- `cargo fmt --check`: フォーマット
-- `cargo clippy -- -D warnings`: リンティング
-- `cargo test`: テスト実行
+- `cmake -S . -B build -DPORTABLE_BUILD=ON`: 構成/生成
+- `cmake --build build --config Release`: ビルド
+- `ctest --output-on-failure --timeout 300 --verbose`: テスト実行
 - `commitlint`: コミットメッセージ規約準拠
 - `markdownlint`: マークダウンファイル品質
 
