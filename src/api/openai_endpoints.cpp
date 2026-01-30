@@ -22,6 +22,15 @@ namespace xllm {
 using json = nlohmann::json;
 
 namespace {
+bool is_gpt_oss_model_name(std::string_view name) {
+    std::string lower;
+    lower.reserve(name.size());
+    for (char c : name) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    return lower.find("gpt-oss") != std::string::npos;
+}
+
 // SPEC-dcaeaec4: Helper to check if node is ready and return 503 if not
 bool checkReady(httplib::Response& res) {
     if (!is_ready()) {
@@ -1664,7 +1673,14 @@ void OpenAIEndpoints::registerRoutes(httplib::Server& server) {
                     params.out_logprobs = &logprobs_out;
                 }
 
-                std::string output = engine_.generateCompletion(prompt, model, params);
+                std::string output;
+                if (is_gpt_oss_model_name(model)) {
+                    std::vector<ChatMessage> messages = dummy_messages;
+                    messages.push_back({"user", prompt});
+                    output = engine_.generateChat(messages, model, params);
+                } else {
+                    output = engine_.generateCompletion(prompt, model, params);
+                }
                 output = applyStopSequences(std::move(output), params.stop_sequences);
                 output = sanitize_utf8_lossy(output);
 
