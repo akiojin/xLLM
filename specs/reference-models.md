@@ -3,6 +3,9 @@
 This file defines the concrete model IDs to be used for mandatory verification/tests
 across xLLM specs. Update this list whenever required model families change.
 
+Testing rule:
+- Model downloads for tests MUST use `xllm pull` (do not use direct downloads or custom scripts).
+
 ## Text (safetensors)
 
 Selection constraints (keep in sync with user requirements):
