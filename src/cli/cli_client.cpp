@@ -35,7 +35,7 @@ bool CliClient::isServerRunning() const {
     client.set_connection_timeout(2, 0);  // 2 seconds
     client.set_read_timeout(2, 0);
 
-    auto res = client.Get("/health");
+    auto res = client.Get("/api/health");
     return res && res->status == 200;
 }
 

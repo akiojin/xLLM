@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <ctime>
 #include <condition_variable>
 #include <cstdlib>
 #include <filesystem>
@@ -444,6 +445,7 @@ std::string unsupported_quantization_message(const std::string& quantization,
 static std::string stripControlTokens(std::string text) {
     const std::vector<std::string> tokens = {
         "<|start|>", "<|end|>", "<|message|>", "<|channel|>",
+        "<|return|>", "<|constrain|>",
         "<|im_start|>", "<|im_end|>", "<s>", "</s>", "<|endoftext|>", "<|eot_id|>"
     };
     for (const auto& t : tokens) {
@@ -458,71 +460,113 @@ static std::string stripControlTokens(std::string text) {
     return text.substr(l, r - l + 1);
 }
 
+static std::string harmony_current_date() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[11] = {0};
+    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm) == 0) {
+        return "1970-01-01";
+    }
+    return std::string(buf);
+}
+
+static std::string build_harmony_system_message() {
+    std::ostringstream oss;
+    oss << "<|start|>system<|message|>"
+        << "You are ChatGPT, a large language model trained by OpenAI.\n"
+        << "Knowledge cutoff: 2024-06\n"
+        << "Current date: " << harmony_current_date() << "\n\n"
+        << "Reasoning: low\n\n"
+        << "# Valid channels: analysis, commentary, final. Channel must be included for every message.\n"
+        << "<|end|>\n";
+    return oss.str();
+}
+
 // gpt-ossテンプレート（モデル側にテンプレが無い場合のフォールバック）。ユーザー入力は改変しない。
 static const char* GPT_OSS_TEMPLATE = R"tmpl({% for message in messages %}
-{% if message['role'] == 'system' %}
-<|start|>system<|message|>{{ message['content'] }}<|end|>
-{% elif message['role'] == 'user' %}
-<|start|>user<|message|>{{ message['content'] }}<|end|>
-{% elif message['role'] == 'assistant' %}
-<|start|>assistant<|channel|>final<|message|>{{ message['content'] }}<|end|>
-{% endif %}
+<|start|>{{ message['role'] }}<|message|>{{ message['content'] }}{% if message['role'] == 'assistant' %}<|return|>{% else %}<|end|>{% endif %}
 {% endfor %}
-<|start|>assistant<|channel|>final<|message|>
+<|start|>assistant
 )tmpl";
 
 // gpt-oss: finalチャンネルだけを抽出して制御トークンを除去
 static std::string extractGptOssFinalMessage(const std::string& output) {
-    const std::string marker = "<|channel|>final<|message|>";
-    const std::string end = "<|end|>";
+    const std::string end_token = "<|return|>";
+    size_t endpos = output.find(end_token);
+    if (endpos == std::string::npos) return stripControlTokens(output);
+    return stripControlTokens(output.substr(0, endpos));
+}
 
-    size_t mpos = output.rfind(marker);
-    if (mpos == std::string::npos) return output;
-    size_t start = mpos + marker.size();
-    size_t endpos = output.find(end, start);
-    std::string seg = endpos == std::string::npos ? output.substr(start) : output.substr(start, endpos - start);
-    return stripControlTokens(seg);
+static std::string extractGptOssFinalChannel(const std::string& output) {
+    const std::string chan_token = "<|channel|>final";
+    const std::string msg_token = "<|message|>";
+    size_t chan_pos = output.rfind(chan_token);
+    if (chan_pos == std::string::npos) return "";
+    size_t msg_pos = output.find(msg_token, chan_pos);
+    if (msg_pos == std::string::npos) return "";
+    msg_pos += msg_token.size();
+    size_t end_pos = output.find("<|end|>", msg_pos);
+    size_t return_pos = output.find("<|return|>", msg_pos);
+    size_t stop = output.size();
+    if (end_pos != std::string::npos) {
+        stop = end_pos;
+    }
+    if (return_pos != std::string::npos) {
+        stop = std::min(stop, return_pos);
+    }
+    if (stop < msg_pos) return "";
+    return stripControlTokens(output.substr(msg_pos, stop - msg_pos));
 }
 
 // gpt-oss形式でプロンプトを構築する関数
 // gpt-oss固有トークン: <|start|>, <|message|>, <|end|>, <|channel|>
 // 応答形式: <|start|>assistant<|channel|>final<|message|>content<|end|>
-// Reasoning: none を設定して推論チャンネルを無効化
 static std::string buildGptOssPrompt(const std::vector<ChatMessage>& messages) {
     std::ostringstream oss;
+    oss << build_harmony_system_message();
 
-    // システムメッセージの有無をチェック
-    bool hasSystemMessage = false;
+    std::string developer_instructions;
     for (const auto& msg : messages) {
         if (msg.role == "system") {
-            hasSystemMessage = true;
-            break;
+            if (!developer_instructions.empty()) {
+                developer_instructions.append("\n\n");
+            }
+            developer_instructions.append(msg.content);
         }
     }
-
-    // システムメッセージがない場合、推論無効のシステムプロンプトを追加
-    if (!hasSystemMessage) {
-        oss << "<|start|>system<|message|>You are a helpful assistant.\n\nReasoning: none<|end|>";
+    if (!developer_instructions.empty()) {
+        oss << "<|start|>developer<|message|># Instructions\n\n"
+            << developer_instructions << "\n<|end|>\n";
     }
 
     for (const auto& msg : messages) {
         if (msg.role == "system") {
-            // システムメッセージに推論設定を追加
-            oss << "<|start|>system<|message|>" << msg.content << "\n\nReasoning: none<|end|>";
-        } else {
-            oss << "<|start|>" << msg.role << "<|message|>" << msg.content << "<|end|>";
+            continue;
         }
+        if (msg.role == "assistant") {
+            oss << "<|start|>assistant<|channel|>final<|message|>" << msg.content << "<|end|>\n";
+            continue;
+        }
+        oss << "<|start|>" << msg.role << "<|message|>" << msg.content << "<|end|>\n";
     }
 
-    // アシスタント応答の開始（final チャンネルでコンテンツを直接生成）
-    oss << "<|start|>assistant<|channel|>final<|message|>";
+    oss << "<|start|>assistant";
     return oss.str();
 }
 
 // gpt-ossモデルの出力から特殊トークンを除去する後処理関数
 static std::string cleanGptOssOutput(const std::string& output) {
-    const std::string marker = "<|channel|>final<|message|>";
-    if (output.find(marker) != std::string::npos) {
+    const auto final_channel = extractGptOssFinalChannel(output);
+    if (!final_channel.empty()) {
+        return final_channel;
+    }
+    if (output.find("<|return|>") != std::string::npos) {
         return extractGptOssFinalMessage(output);
     }
 

@@ -45,4 +45,4 @@
 
 ## ヘルスチェック
 
-- `/health`に`supports_responses_api: true`を含める
+- `/api/health`に`supports_responses_api: true`を含める

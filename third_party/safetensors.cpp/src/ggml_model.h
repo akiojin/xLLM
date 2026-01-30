@@ -24,6 +24,7 @@ namespace stcpp {
 struct ModelHParams {
     int32_t n_vocab = 0;
     int32_t n_ctx_train = 0;   // Training context size
+    int32_t n_ctx_orig = 0;    // Original context size (for YARN / rope scaling)
     int32_t n_embd = 0;        // Hidden size
     int32_t n_head = 0;        // Number of attention heads
     int32_t n_head_kv = 0;     // Number of KV heads (for GQA/MQA)
@@ -35,10 +36,16 @@ struct ModelHParams {
     int32_t n_rot = 0;         // RoPE rotation dimensions
     float rope_freq_base = 10000.0f;
     float rope_freq_scale = 1.0f;
+    float rope_ext_factor = 0.0f;   // YARN extrapolation factor (0 = disabled)
+    float rope_attn_factor = 1.0f;  // YARN attention scaling
+    float rope_beta_fast = 0.0f;    // YARN beta_fast
+    float rope_beta_slow = 0.0f;    // YARN beta_slow
     float norm_eps = 1e-5f;
     float swiglu_limit = 7.0f;  // gpt-oss SwiGLU clamp
     bool use_gqa = false;      // Grouped Query Attention
     bool use_moe = false;      // MoE layers enabled
+    int32_t sliding_window = 0;  // Sliding window size (0 = full attention)
+    std::vector<uint8_t> layer_is_sliding;  // Per-layer sliding attention flags
     std::string architecture;   // Architecture name from config.json (e.g., "llama", "mistral")
     enum ggml_type weight_type = GGML_TYPE_F16;  // Weight data type (from torch_dtype)
 };
@@ -53,9 +60,13 @@ struct LayerTensors {
     struct ggml_tensor* bq = nullptr;      // Query bias (optional, used by Qwen2)
     struct ggml_tensor* bk = nullptr;      // Key bias (optional, used by Qwen2)
     struct ggml_tensor* bv = nullptr;      // Value bias (optional, used by Qwen2)
+    struct ggml_tensor* bo = nullptr;      // Output bias (optional, used by gpt-oss)
+    struct ggml_tensor* attn_sinks = nullptr;  // Attention sinks (optional, gpt-oss)
     bool has_bq = false;                   // True if bq was loaded from model
     bool has_bk = false;                   // True if bk was loaded from model
     bool has_bv = false;                   // True if bv was loaded from model
+    bool has_bo = false;                   // True if bo was loaded from model
+    bool has_attn_sinks = false;           // True if attn_sinks was loaded from model
 
     // Attention norm (pre-attention)
     struct ggml_tensor* attn_norm = nullptr;
@@ -74,9 +85,9 @@ struct LayerTensors {
     bool is_moe = false;
     struct ggml_tensor* moe_router = nullptr;       // [n_embd, n_expert]
     struct ggml_tensor* moe_router_bias = nullptr;  // [n_expert]
-    struct ggml_tensor* moe_gate_exps = nullptr;    // [n_embd, n_ff, n_expert] (MXFP4)
-    struct ggml_tensor* moe_up_exps = nullptr;      // [n_embd, n_ff, n_expert] (MXFP4)
-    struct ggml_tensor* moe_down_exps = nullptr;    // [n_ff, n_embd, n_expert] (MXFP4)
+    struct ggml_tensor* moe_gate_exps = nullptr;    // [n_embd, n_ff, n_expert] (MXFP4, or Q4_0 fallback)
+    struct ggml_tensor* moe_up_exps = nullptr;      // [n_embd, n_ff, n_expert] (MXFP4, or Q4_0 fallback)
+    struct ggml_tensor* moe_down_exps = nullptr;    // [n_ff, n_embd, n_expert] (MXFP4, or Q4_0 fallback)
     struct ggml_tensor* moe_gate_bias = nullptr;    // [n_ff, n_expert] (F32)
     struct ggml_tensor* moe_up_bias = nullptr;      // [n_ff, n_expert] (F32)
     struct ggml_tensor* moe_down_bias = nullptr;    // [n_embd, n_expert] (F32)
@@ -227,9 +238,12 @@ enum ggml_type dtype_to_ggml_type(DType dtype);
 bool pack_mxfp4_blocks_to_ggml(
     const uint8_t* blocks,
     const uint8_t* scales,
+    size_t blocks_size,
+    size_t scales_size,
     const std::vector<int64_t>& blocks_shape,
     const std::vector<int64_t>& scales_shape,
     int64_t row_offset,
+    int64_t row_stride,
     int64_t row_count,
     int64_t n_cols,
     std::vector<uint8_t>& out,

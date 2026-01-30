@@ -26,7 +26,7 @@ curl -N -X POST http://localhost:32769/v1/responses \
 ## ヘルスチェック
 
 ```bash
-curl http://localhost:32769/health
+curl http://localhost:32769/api/health
 ```
 
 `supports_responses_api: true`が含まれることを確認する。

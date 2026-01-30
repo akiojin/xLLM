@@ -11,10 +11,19 @@
 
 #include "ggml_model.h"
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+
+#ifndef STCPP_DEBUG_READBACK
+#define STCPP_DEBUG_READBACK 0
+#endif
+
+#ifndef STCPP_NAN_DEBUG
+#define STCPP_NAN_DEBUG 0
+#endif
 
 namespace stcpp {
 
@@ -44,9 +53,15 @@ static struct ggml_tensor* rms_norm(
     // RMSNorm(x) = x / sqrt(mean(x^2) + eps) * weight
     x = ggml_rms_norm(ctx, x, eps);
 
+    const bool is_layer3_ffn = weight && weight->name[0] != '\0' &&
+        std::strstr(weight->name, "blk.3.ffn_norm.weight") != nullptr;
+
     // Name for debugging (only first call which is layer 0 attention)
     if (call_idx == 0) {
         ggml_set_name(x, "debug_rms_raw");
+    }
+    if (is_layer3_ffn) {
+        ggml_set_name(x, "layer3_ffn_rms_raw");
     }
 
     // IMPORTANT: Mark rms_norm output to prevent gallocr from reusing its buffer
@@ -60,6 +75,9 @@ static struct ggml_tensor* rms_norm(
     if (call_idx == 0) {
         ggml_set_name(x, "debug_rms_cont");
     }
+    if (is_layer3_ffn) {
+        ggml_set_name(x, "layer3_ffn_rms_cont");
+    }
 
     // Also mark ggml_cont output to prevent its buffer from being reused
     ggml_set_output(x);
@@ -67,6 +85,10 @@ static struct ggml_tensor* rms_norm(
     struct ggml_tensor* result = ggml_mul(ctx, x, weight);
     if (call_idx == 0) {
         ggml_set_name(result, "debug_rms_mul");
+        ggml_set_output(result);
+    }
+    if (is_layer3_ffn) {
+        ggml_set_name(result, "layer3_ffn_rms_mul");
         ggml_set_output(result);
     }
 
@@ -77,6 +99,7 @@ static struct ggml_tensor* rms_norm(
 struct CausalMaskInfo {
     struct ggml_tensor* tensor;
     int32_t n_past;
+    int32_t window;
 };
 
 struct CausalMaskStorage {
@@ -89,10 +112,97 @@ static CausalMaskStorage& get_causal_mask_storage() {
     return storage;
 }
 
+static bool stcpp_nan_debug_enabled() {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char* env = std::getenv("STCPP_NAN_DEBUG");
+        enabled = (env && *env && std::strcmp(env, "0") != 0) ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static bool stcpp_nan_debug_once() {
+    static bool done = false;
+    if (done) {
+        return false;
+    }
+    done = true;
+    return true;
+}
+
+static bool stcpp_readback_has_nan(struct ggml_tensor* tensor, int64_t max_values, const char* label) {
+    if (!tensor || !tensor->buffer) {
+        fprintf(stderr, "[DEBUG] NAN_CHECK %s: tensor missing or no buffer\n", label ? label : "(null)");
+        return false;
+    }
+
+    const int64_t n_vals = std::min<int64_t>(max_values, ggml_nelements(tensor));
+    if (n_vals <= 0) {
+        fprintf(stderr, "[DEBUG] NAN_CHECK %s: empty tensor\n", label ? label : "(null)");
+        return false;
+    }
+
+    std::vector<float> data(static_cast<size_t>(n_vals));
+    switch (tensor->type) {
+        case GGML_TYPE_F32: {
+            ggml_backend_tensor_get(tensor, data.data(), 0, n_vals * sizeof(float));
+            break;
+        }
+        case GGML_TYPE_F16: {
+            std::vector<ggml_fp16_t> tmp(static_cast<size_t>(n_vals));
+            ggml_backend_tensor_get(tensor, tmp.data(), 0, n_vals * sizeof(ggml_fp16_t));
+            ggml_fp16_to_fp32_row(tmp.data(), data.data(), n_vals);
+            break;
+        }
+        case GGML_TYPE_BF16: {
+            std::vector<ggml_bf16_t> tmp(static_cast<size_t>(n_vals));
+            ggml_backend_tensor_get(tensor, tmp.data(), 0, n_vals * sizeof(ggml_bf16_t));
+            ggml_bf16_to_fp32_row(tmp.data(), data.data(), n_vals);
+            break;
+        }
+        default:
+            fprintf(stderr, "[DEBUG] NAN_CHECK %s: unsupported tensor type=%d\n", label ? label : "(null)", tensor->type);
+            return false;
+    }
+
+    bool has_nan = false;
+    bool has_inf = false;
+    for (int64_t i = 0; i < n_vals; ++i) {
+        if (std::isnan(data[static_cast<size_t>(i)])) {
+            has_nan = true;
+            break;
+        }
+        if (!std::isfinite(data[static_cast<size_t>(i)])) {
+            has_inf = true;
+        }
+    }
+
+    if (has_nan || has_inf) {
+        fprintf(stderr, "[DEBUG] NAN_CHECK %s: has_nan=%d has_inf=%d first5=%.6f %.6f %.6f %.6f %.6f\n",
+                label ? label : "(null)", has_nan ? 1 : 0, has_inf ? 1 : 0,
+                data[0],
+                (n_vals > 1 ? data[1] : 0.0f),
+                (n_vals > 2 ? data[2] : 0.0f),
+                (n_vals > 3 ? data[3] : 0.0f),
+                (n_vals > 4 ? data[4] : 0.0f));
+    } else {
+        fprintf(stderr, "[DEBUG] NAN_CHECK %s: ok first5=%.6f %.6f %.6f %.6f %.6f\n",
+                label ? label : "(null)",
+                data[0],
+                (n_vals > 1 ? data[1] : 0.0f),
+                (n_vals > 2 ? data[2] : 0.0f),
+                (n_vals > 3 ? data[3] : 0.0f),
+                (n_vals > 4 ? data[4] : 0.0f));
+    }
+
+    return has_nan;
+}
+
 static struct ggml_tensor* apply_causal_mask(
     struct ggml_context* ctx,
     struct ggml_tensor* scores,
-    int n_past
+    int n_past,
+    int32_t window
 ) {
     const int64_t n_kv = scores->ne[0];
     const int64_t n_tokens = scores->ne[1];
@@ -104,6 +214,7 @@ static struct ggml_tensor* apply_causal_mask(
     if (storage.count < 64) {
         storage.tensors[storage.count].tensor = mask;
         storage.tensors[storage.count].n_past = n_past;
+        storage.tensors[storage.count].window = window;
         storage.count++;
     }
 
@@ -148,8 +259,13 @@ static void apply_rope(
     int32_t n_past,
     int32_t n_tokens,
     int32_t n_rot,
+    int32_t n_ctx_orig,
     float freq_base,
     float freq_scale,
+    float ext_factor,
+    float attn_factor,
+    float beta_fast,
+    float beta_slow,
     int32_t layer_idx
 ) {
     // Build position tensor [n_past, n_past+1, ..., n_past+n_tokens-1]
@@ -176,21 +292,21 @@ static void apply_rope(
     const int mode = 2;
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] apply_rope[0]: freq_base=%.1f, freq_scale=%.4f, n_rot=%d, mode=%d\n",
-                freq_base, freq_scale, n_rot, mode);
+        fprintf(stderr, "[DEBUG] apply_rope[0]: freq_base=%.1f, freq_scale=%.4f, n_rot=%d, n_ctx_orig=%d, ext=%.4f, attn=%.4f, beta_fast=%.2f, beta_slow=%.2f, mode=%d\n",
+                freq_base, freq_scale, n_rot, n_ctx_orig, ext_factor, attn_factor, beta_fast, beta_slow, mode);
         fflush(stderr);
     }
 
     *q = ggml_rope_ext(
         ctx, *q, positions, nullptr,
-        n_rot, mode, 0,
-        freq_base, freq_scale, 0.0f, 1.0f, 0.0f, 0.0f
+        n_rot, mode, n_ctx_orig,
+        freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow
     );
 
     *k = ggml_rope_ext(
         ctx, *k, positions, nullptr,
-        n_rot, mode, 0,
-        freq_base, freq_scale, 0.0f, 1.0f, 0.0f, 0.0f
+        n_rot, mode, n_ctx_orig,
+        freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow
     );
 }
 
@@ -298,9 +414,15 @@ static struct ggml_tensor* multi_head_attention(
     int32_t n_embd,
     int32_t head_dim,
     int32_t n_rot,
+    int32_t n_ctx_orig,
     float freq_base,
     float freq_scale,
-    int32_t layer_idx
+    float rope_ext_factor,
+    float rope_attn_factor,
+    float rope_beta_fast,
+    float rope_beta_slow,
+    int32_t layer_idx,
+    int32_t sliding_window
 ) {
     if (layer_idx == 0) {
         fprintf(stderr, "[DEBUG] MHA[0]: entered, n_head=%d, n_head_kv=%d, n_embd=%d, n_rot=%d\n",
@@ -340,6 +462,7 @@ static struct ggml_tensor* multi_head_attention(
         fprintf(stderr, "[DEBUG] MHA[0]: has_bq=%d, has_bk=%d, has_bv=%d, bq=%p, bk=%p, bv=%p\n",
                 layer.has_bq, layer.has_bk, layer.has_bv,
                 (void*)layer.bq, (void*)layer.bk, (void*)layer.bv);
+#if STCPP_DEBUG_READBACK
         // Print bias values for debugging
         if (layer.has_bq && layer.bq && layer.bq->buffer) {
             std::vector<float> bq_vals(5);
@@ -353,6 +476,7 @@ static struct ggml_tensor* multi_head_attention(
             fprintf(stderr, "[DEBUG] MHA[0]: bk first 5: %.6f %.6f %.6f %.6f %.6f\n",
                     bk_vals[0], bk_vals[1], bk_vals[2], bk_vals[3], bk_vals[4]);
         }
+#endif
         fflush(stderr);
     }
     if (layer.has_bq && layer.bq) {
@@ -391,7 +515,9 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     // Apply RoPE
-    apply_rope(ctx, &q, &k, n_past, n_tokens, n_rot, freq_base, freq_scale, layer_idx);
+    apply_rope(ctx, &q, &k, n_past, n_tokens, n_rot, n_ctx_orig,
+               freq_base, freq_scale, rope_ext_factor, rope_attn_factor, rope_beta_fast, rope_beta_slow,
+               layer_idx);
     if (layer_idx == 0) {
         fprintf(stderr, "[DEBUG] MHA[0]: apply_rope returned\n");
         fflush(stderr);
@@ -629,10 +755,13 @@ static struct ggml_tensor* multi_head_attention(
         ggml_set_output(scores);
     }
 
-    scores = apply_causal_mask(ctx, scores, n_past);
+    scores = apply_causal_mask(ctx, scores, n_past, sliding_window);
 
     // Softmax over n_kv dimension (ne[0])
     scores = ggml_soft_max(ctx, scores);
+    if (layer.has_attn_sinks && layer.attn_sinks) {
+        ggml_soft_max_add_sinks(scores, layer.attn_sinks);
+    }
 
     // Debug: mark scores after softmax
     if (layer_idx == 0) {
@@ -773,6 +902,11 @@ static struct ggml_tensor* multi_head_attention(
 
     attn_out = ggml_mul_mat(ctx, layer.wo, attn_out);
 
+    // Add output projection bias if present
+    if (layer.has_bo && layer.bo) {
+        attn_out = ggml_add(ctx, attn_out, layer.bo);
+    }
+
     if (layer_idx == 0) {
         fprintf(stderr, "[DEBUG] MHA[0]: done\n");
         ggml_set_name(attn_out, "layer0_mha_output");
@@ -840,9 +974,17 @@ static struct ggml_tensor* moe_swiglu_oai(
     if (layer.moe_router_bias) {
         logits = ggml_add(ctx, logits, layer.moe_router_bias);
     }
+    if (layer_idx == 3) {
+        ggml_set_name(logits, "layer3_moe_logits");
+        ggml_set_output(logits);
+    }
 
     // Softmax probabilities
     struct ggml_tensor* probs = ggml_soft_max(ctx, logits);
+    if (layer_idx == 3) {
+        ggml_set_name(probs, "layer3_moe_probs");
+        ggml_set_output(probs);
+    }
 
     // Select Top-K experts
     struct ggml_tensor* selected = ggml_argsort_top_k(ctx, probs, static_cast<int>(n_expert_used));
@@ -850,37 +992,104 @@ static struct ggml_tensor* moe_swiglu_oai(
     // Gather weights [1, n_expert_used, n_tokens]
     probs = ggml_reshape_3d(ctx, probs, 1, n_expert, n_tokens);
     struct ggml_tensor* weights = ggml_get_rows(ctx, probs, selected);
+    if (layer_idx == 3) {
+        ggml_set_name(weights, "layer3_moe_weights_raw");
+        ggml_set_output(weights);
+    }
 
     // Normalize weights across selected experts
     weights = ggml_cont(ctx, weights);
     weights = ggml_reshape_2d(ctx, weights, n_expert_used, n_tokens);
     struct ggml_tensor* weights_sum = ggml_sum_rows(ctx, weights);
+    if (layer_idx == 3) {
+        ggml_set_name(weights_sum, "layer3_moe_weights_sum");
+        ggml_set_output(weights_sum);
+    }
     weights_sum = ggml_clamp(ctx, weights_sum, 6.103515625e-5f, INFINITY);
     weights = ggml_div(ctx, weights, weights_sum);
+    if (layer_idx == 3) {
+        ggml_set_name(weights, "layer3_moe_weights_div");
+        ggml_set_output(weights);
+    }
     weights = ggml_reshape_3d(ctx, weights, 1, n_expert_used, n_tokens);
+    if (layer_idx == 3) {
+        ggml_set_name(weights, "layer3_moe_weights");
+        ggml_set_output(weights);
+    }
 
-    // Prepare input for MoE matmul
-    struct ggml_tensor* cur_3d = ggml_reshape_3d(ctx, cur, n_embd, 1, n_tokens);
-
-    struct ggml_tensor* up = ggml_mul_mat_id(ctx, layer.moe_up_exps, cur_3d, selected);
+    // Compute expert projections for all experts, then select with get_rows.
+    struct ggml_tensor* cur_exps = ggml_repeat_4d(ctx, cur, n_embd, n_tokens, n_expert, 1);
+    if (layer_idx == 3) {
+        ggml_set_name(cur_exps, "layer3_moe_cur_exps");
+        ggml_set_output(cur_exps);
+    }
+    struct ggml_tensor* up_all = ggml_mul_mat(ctx, layer.moe_up_exps, cur_exps);
+    if (layer_idx == 3) {
+        ggml_set_name(up_all, "layer3_moe_up_all");
+        ggml_set_output(up_all);
+    }
+    struct ggml_tensor* up_perm = ggml_permute(ctx, up_all, 0, 2, 1, 3);
+    if (layer_idx == 3) {
+        ggml_set_name(up_perm, "layer3_moe_up_perm");
+        ggml_set_output(up_perm);
+    }
+    struct ggml_tensor* up = ggml_get_rows(ctx, up_perm, selected);
+    if (layer_idx == 3) {
+        ggml_set_name(up, "layer3_moe_up_pre_bias");
+        ggml_set_output(up);
+    }
     if (layer.moe_up_bias) {
         up = ggml_add_id(ctx, up, layer.moe_up_bias, selected);
     }
+    if (layer_idx == 3) {
+        ggml_set_name(up, "layer3_moe_up");
+        ggml_set_output(up);
+    }
 
-    struct ggml_tensor* gate = ggml_mul_mat_id(ctx, layer.moe_gate_exps, cur_3d, selected);
+    struct ggml_tensor* gate_all = ggml_mul_mat(ctx, layer.moe_gate_exps, cur_exps);
+    if (layer_idx == 3) {
+        ggml_set_name(gate_all, "layer3_moe_gate_all");
+        ggml_set_output(gate_all);
+    }
+    struct ggml_tensor* gate_perm = ggml_permute(ctx, gate_all, 0, 2, 1, 3);
+    if (layer_idx == 3) {
+        ggml_set_name(gate_perm, "layer3_moe_gate_perm");
+        ggml_set_output(gate_perm);
+    }
+    struct ggml_tensor* gate = ggml_get_rows(ctx, gate_perm, selected);
+    if (layer_idx == 3) {
+        ggml_set_name(gate, "layer3_moe_gate_pre_bias");
+        ggml_set_output(gate);
+    }
     if (layer.moe_gate_bias) {
         gate = ggml_add_id(ctx, gate, layer.moe_gate_bias, selected);
     }
+    if (layer_idx == 3) {
+        ggml_set_name(gate, "layer3_moe_gate");
+        ggml_set_output(gate);
+    }
 
     struct ggml_tensor* act = ggml_swiglu_oai(ctx, gate, up, 1.702f, hparams.swiglu_limit);
+    if (layer_idx == 3) {
+        ggml_set_name(act, "layer3_moe_act");
+        ggml_set_output(act);
+    }
 
     struct ggml_tensor* down = ggml_mul_mat_id(ctx, layer.moe_down_exps, act, selected);
     if (layer.moe_down_bias) {
         down = ggml_add_id(ctx, down, layer.moe_down_bias, selected);
     }
+    if (layer_idx == 3) {
+        ggml_set_name(down, "layer3_moe_down");
+        ggml_set_output(down);
+    }
 
     // Apply routing weights
     down = ggml_mul(ctx, down, weights);
+    if (layer_idx == 3) {
+        ggml_set_name(down, "layer3_moe_down_weighted");
+        ggml_set_output(down);
+    }
 
     // Sum across experts
     struct ggml_tensor* moe_out = nullptr;
@@ -895,6 +1104,10 @@ static struct ggml_tensor* moe_swiglu_oai(
 
     if (layer_idx == 0) {
         ggml_set_name(moe_out, "layer0_moe_out");
+        ggml_set_output(moe_out);
+    }
+    if (layer_idx == 3) {
+        ggml_set_name(moe_out, "layer3_moe_out");
         ggml_set_output(moe_out);
     }
 
@@ -962,6 +1175,15 @@ static struct ggml_tensor* build_layer(
         fflush(stderr);
     }
 
+    int32_t sliding_window = 0;
+    if (hparams.sliding_window > 0) {
+        if (hparams.layer_is_sliding.empty()) {
+            sliding_window = hparams.sliding_window;
+        } else if (layer_idx < (int32_t)hparams.layer_is_sliding.size() && hparams.layer_is_sliding[layer_idx]) {
+            sliding_window = hparams.sliding_window;
+        }
+    }
+
     // Multi-head attention
     cur = multi_head_attention(
         ctx, cur, layer,
@@ -969,8 +1191,11 @@ static struct ggml_tensor* build_layer(
         n_past, n_tokens,
         hparams.n_head, hparams.n_head_kv,
         hparams.n_embd, hparams.head_dim, hparams.n_rot,
+        hparams.n_ctx_orig,
         hparams.rope_freq_base, hparams.rope_freq_scale,
-        layer_idx
+        hparams.rope_ext_factor, hparams.rope_attn_factor,
+        hparams.rope_beta_fast, hparams.rope_beta_slow,
+        layer_idx, sliding_window
     );
 
     // Mark attention output to prevent buffer reuse (applies to ALL layers)
@@ -985,6 +1210,9 @@ static struct ggml_tensor* build_layer(
                 (void*)residual, (long long)residual->ne[0], (long long)residual->ne[1],
                 (long long)residual->ne[2], (long long)residual->ne[3]);
         fflush(stderr);
+    }
+    if (layer_idx == 3) {
+        ggml_set_name(cur, "layer3_attn_raw");
     }
 
     // Residual connection #1: attention_output + input
@@ -1001,6 +1229,9 @@ static struct ggml_tensor* build_layer(
 
     if (layer_idx == 0) {
         ggml_set_name(cur, "layer0_attn_out");
+    }
+    if (layer_idx == 3) {
+        ggml_set_name(cur, "layer3_attn_out");
     }
 
     // Save attention output for second residual connection
@@ -1022,9 +1253,16 @@ static struct ggml_tensor* build_layer(
     }
 
     // Pre-FFN RMSNorm
+    if (layer_idx == 3) {
+        ggml_set_name(cur, "layer3_ffn_norm_in");
+        ggml_set_output(cur);
+    }
     cur = rms_norm(ctx, cur, layer.ffn_norm, hparams.norm_eps);
     if (layer_idx == 0) {
         ggml_set_name(cur, "layer0_ffn_norm");
+    }
+    if (layer_idx == 3) {
+        ggml_set_name(cur, "layer3_ffn_norm");
     }
 
     if (layer_idx == 0) {
@@ -1052,6 +1290,9 @@ static struct ggml_tensor* build_layer(
     if (layer_idx == 0) {
         ggml_set_name(cur, "layer0_ffn_out");
     }
+    if (layer_idx == 3) {
+        ggml_set_name(cur, "layer3_ffn_out");
+    }
 
     if (layer_idx == 0) {
         fprintf(stderr, "[DEBUG] build_layer[0]: ffn done, adding residual\n");
@@ -1070,14 +1311,10 @@ static struct ggml_tensor* build_layer(
                 (void*)cur, (void*)cur->src[0], (void*)cur->src[1]);
         fflush(stderr);
     }
-    // Debug: mark last layer output for debugging
-    if (layer_idx == 23) {
-        ggml_set_name(cur, "layer23_output");
-        ggml_set_output(cur);
-    }
-    // Debug: mark middle layer output
-    if (layer_idx == 12) {
-        ggml_set_name(cur, "layer12_output");
+    if (layer_idx <= 4 || (layer_idx % 4) == 0 || layer_idx == hparams.n_layer - 1) {
+        char layer_name[64];
+        std::snprintf(layer_name, sizeof(layer_name), "layer%d_output", layer_idx);
+        ggml_set_name(cur, layer_name);
         ggml_set_output(cur);
     }
 
@@ -1175,6 +1412,7 @@ struct ggml_cgraph* build_compute_graph(
     ggml_set_output(cur);  // Mark so we can read it after compute
 
     // LM head - check output tensor has data
+#if STCPP_DEBUG_READBACK
     if (tensors.output && tensors.output->buffer) {
         std::vector<float> output_data(5);
         ggml_backend_tensor_get(tensors.output, output_data.data(), 0, 5 * sizeof(float));
@@ -1182,6 +1420,7 @@ struct ggml_cgraph* build_compute_graph(
                 output_data[0], output_data[1], output_data[2], output_data[3], output_data[4]);
         fflush(stderr);
     }
+#endif
     cur = ggml_mul_mat(ctx_graph, tensors.output, cur);
     fprintf(stderr, "[DEBUG] build_compute_graph: output tensor ne=[%lld, %lld], output_norm ne=[%lld]\n",
             (long long)tensors.output->ne[0], (long long)tensors.output->ne[1],
@@ -1286,8 +1525,15 @@ bool forward_pass(
     struct ggml_tensor* emb_input = ggml_graph_get_tensor(graph, "emb_input");
     if (emb_input && emb_input->buffer && ctx->model->tensors.tok_embd) {
         size_t n_embd = ctx->model->hparams.n_embd;
-        size_t emb_byte_size = n_embd * sizeof(float);
+        size_t emb_out_bytes = n_embd * sizeof(float);
         auto& tok_embd = ctx->model->tensors.tok_embd;
+        const enum ggml_type emb_type = tok_embd->type;
+        const size_t emb_row_bytes = n_embd * ggml_type_size(emb_type);
+        if (emb_row_bytes > tok_embd->nb[1]) {
+            ggml_gallocr_free(allocr);
+            error = "tok_embd stride is smaller than expected row size";
+            return false;
+        }
 
         fprintf(stderr, "[DEBUG] forward_pass: setting embedding input for %d tokens\n", n_tokens);
         fprintf(stderr, "[DEBUG] forward_pass: token[0]=%d, tok_embd nb[1]=%zu\n", tokens[0], tok_embd->nb[1]);
@@ -1295,20 +1541,44 @@ bool forward_pass(
 
         // Allocate buffer for all token embeddings
         std::vector<float> emb_buffer(n_embd * n_tokens);
+        std::vector<ggml_fp16_t> emb_f16;
+        std::vector<ggml_bf16_t> emb_bf16;
+        if (emb_type == GGML_TYPE_F16) {
+            emb_f16.resize(n_embd);
+        } else if (emb_type == GGML_TYPE_BF16) {
+            emb_bf16.resize(n_embd);
+        }
 
         // Copy each token's embedding
         for (int i = 0; i < n_tokens; i++) {
             int32_t token_id = tokens[i];
             size_t src_offset = static_cast<size_t>(token_id) * tok_embd->nb[1];
 
-            // Read embedding from tok_embd
-            ggml_backend_tensor_get(tok_embd, emb_buffer.data() + i * n_embd,
-                                    src_offset, emb_byte_size);
+            if (src_offset + emb_row_bytes > ggml_nbytes(tok_embd)) {
+                ggml_gallocr_free(allocr);
+                error = "tok_embd read out of bounds";
+                return false;
+            }
+
+            float* dst = emb_buffer.data() + i * n_embd;
+            if (emb_type == GGML_TYPE_F32) {
+                ggml_backend_tensor_get(tok_embd, dst, src_offset, emb_out_bytes);
+            } else if (emb_type == GGML_TYPE_F16) {
+                ggml_backend_tensor_get(tok_embd, emb_f16.data(), src_offset, emb_row_bytes);
+                ggml_fp16_to_fp32_row(emb_f16.data(), dst, static_cast<int64_t>(n_embd));
+            } else if (emb_type == GGML_TYPE_BF16) {
+                ggml_backend_tensor_get(tok_embd, emb_bf16.data(), src_offset, emb_row_bytes);
+                ggml_bf16_to_fp32_row(emb_bf16.data(), dst, static_cast<int64_t>(n_embd));
+            } else {
+                ggml_gallocr_free(allocr);
+                error = "Unsupported tok_embd type for embedding input";
+                return false;
+            }
 
         }
 
         // Write embeddings to emb_input
-        ggml_backend_tensor_set(emb_input, emb_buffer.data(), 0, emb_byte_size * n_tokens);
+        ggml_backend_tensor_set(emb_input, emb_buffer.data(), 0, emb_out_bytes * n_tokens);
     } else {
         ggml_gallocr_free(allocr);
         error = "emb_input tensor not found or no buffer";
@@ -1351,15 +1621,28 @@ bool forward_pass(
         std::vector<float> mask_data(static_cast<size_t>(n_kv * n_tokens));
         for (int64_t t = 0; t < n_tokens; ++t) {
             const int64_t max_k = static_cast<int64_t>(info.n_past) + t;
+            int64_t min_k = 0;
+            if (info.window > 0) {
+                const int64_t w = static_cast<int64_t>(info.window);
+                min_k = max_k - w + 1;
+                if (min_k < 0) {
+                    min_k = 0;
+                }
+            }
             const int64_t row_offset = t * n_kv;
             for (int64_t k = 0; k < n_kv; ++k) {
-                mask_data[static_cast<size_t>(row_offset + k)] = (k > max_k) ? neg_inf : 0.0f;
+                if (k > max_k || k < min_k) {
+                    mask_data[static_cast<size_t>(row_offset + k)] = neg_inf;
+                } else {
+                    mask_data[static_cast<size_t>(row_offset + k)] = 0.0f;
+                }
             }
         }
         ggml_backend_tensor_set(info.tensor, mask_data.data(), 0, mask_data.size() * sizeof(float));
     }
 
     // Debug: Check emb_input BEFORE compute
+#if STCPP_DEBUG_READBACK
     {
         struct ggml_tensor* emb_pre = ggml_graph_get_tensor(graph, "emb_input");
         if (emb_pre && emb_pre->buffer) {
@@ -1370,6 +1653,7 @@ bool forward_pass(
         }
         fflush(stderr);
     }
+#endif
 
     fprintf(stderr, "[DEBUG] forward_pass: starting backend compute\n");
     fflush(stderr);
@@ -1386,7 +1670,117 @@ bool forward_pass(
     fprintf(stderr, "[DEBUG] forward_pass: backend compute done\n");
     fflush(stderr);
 
+    if (stcpp_nan_debug_once()) {
+        auto check_tensor = [&](const char* name, int64_t max_vals) {
+            struct ggml_tensor* t = ggml_graph_get_tensor(graph, name);
+            if (!t) {
+                fprintf(stderr, "[DEBUG] NAN_CHECK %s: tensor not found\n", name);
+                return false;
+            }
+            return stcpp_readback_has_nan(t, max_vals, name);
+        };
+
+        bool nan_found = false;
+        nan_found = check_tensor("emb_input", 16);
+        if (!nan_found) nan_found = check_tensor("debug_rms_raw", 16);
+        if (!nan_found) nan_found = check_tensor("layer0_q_after_bias", 16);
+        if (!nan_found) nan_found = check_tensor("layer0_scores_scaled", 16);
+        if (!nan_found) nan_found = check_tensor("layer0_scores_softmax", 16);
+        if (!nan_found) nan_found = check_tensor("layer0_attn_out_raw", 16);
+        if (!nan_found) nan_found = check_tensor("layer0_attn_out", 16);
+        if (!nan_found) nan_found = check_tensor("layer0_ffn_out", 16);
+        if (!nan_found) nan_found = check_tensor("layer0_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer1_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer2_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_attn_raw", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_attn_out", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_ffn_norm_in", 2880);
+        if (!nan_found) nan_found = check_tensor("layer3_ffn_rms_raw", 2880);
+        if (!nan_found) nan_found = check_tensor("layer3_ffn_rms_cont", 2880);
+        if (!nan_found) nan_found = check_tensor("layer3_ffn_rms_mul", 2880);
+        if (!nan_found) nan_found = check_tensor("layer3_ffn_norm", 2880);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_logits", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_probs", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_weights_raw", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_weights_sum", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_weights_div", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_weights", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_cur_exps", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_gate_all", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_gate_perm", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_gate_pre_bias", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_up_all", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_up_perm", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_up_pre_bias", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_gate", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_up", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_act", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_down", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_down_weighted", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_moe_out", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_ffn_out", 16);
+        if (!nan_found) nan_found = check_tensor("layer3_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer4_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer8_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer12_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer16_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer20_output", 16);
+        if (!nan_found) nan_found = check_tensor("layer23_output", 16);
+        if (!nan_found) nan_found = check_tensor("last_layer_output", 16);
+        if (!nan_found) nan_found = check_tensor("final_norm", 16);
+        if (!nan_found) nan_found = check_tensor("logits", 16);
+
+        if (!nan_found && ctx && ctx->model) {
+            if (stcpp_readback_has_nan(ctx->model->tensors.output_norm, 16, "output_norm_weight")) {
+                nan_found = true;
+            }
+        }
+        if (ctx && ctx->model) {
+            if (stcpp_readback_has_nan(ctx->model->tensors.layers[3].ffn_norm, 2880, "layer3_ffn_norm_weight")) {
+                nan_found = true;
+            }
+        }
+        if (ctx && ctx->model) {
+            if (ctx->model->tensors.layers[3].moe_gate_exps) {
+                if (stcpp_readback_has_nan(ctx->model->tensors.layers[3].moe_gate_exps, 16, "layer3_moe_gate_weight")) {
+                    nan_found = true;
+                }
+            }
+            if (ctx->model->tensors.layers[3].moe_up_exps) {
+                if (stcpp_readback_has_nan(ctx->model->tensors.layers[3].moe_up_exps, 16, "layer3_moe_up_weight")) {
+                    nan_found = true;
+                }
+            }
+            if (ctx->model->tensors.layers[3].moe_down_exps) {
+                if (stcpp_readback_has_nan(ctx->model->tensors.layers[3].moe_down_exps, 16, "layer3_moe_down_weight")) {
+                    nan_found = true;
+                }
+            }
+            if (ctx->model->tensors.layers[3].moe_gate_bias) {
+                if (stcpp_readback_has_nan(ctx->model->tensors.layers[3].moe_gate_bias, 16, "layer3_moe_gate_bias")) {
+                    nan_found = true;
+                }
+            }
+            if (ctx->model->tensors.layers[3].moe_up_bias) {
+                if (stcpp_readback_has_nan(ctx->model->tensors.layers[3].moe_up_bias, 16, "layer3_moe_up_bias")) {
+                    nan_found = true;
+                }
+            }
+            if (ctx->model->tensors.layers[3].moe_down_bias) {
+                if (stcpp_readback_has_nan(ctx->model->tensors.layers[3].moe_down_bias, 16, "layer3_moe_down_bias")) {
+                    nan_found = true;
+                }
+            }
+        }
+
+        if (!nan_found) {
+            fprintf(stderr, "[DEBUG] NAN_CHECK: no NaNs detected in sampled tensors\n");
+        }
+        fflush(stderr);
+    }
+
     // Debug: check KV cache contents after compute
+#if STCPP_DEBUG_READBACK
     if (ctx->k_cache && ctx->k_cache->buffer && n_tokens > 0) {
         // Read first 10 values from k_cache (layer 0, position 0)
         std::vector<ggml_fp16_t> k_data(10);
@@ -2047,6 +2441,7 @@ bool forward_pass(
             fflush(stderr);
         }
     }
+#endif
 
     // Extract logits tensor by name
     struct ggml_tensor* logits_tensor = ggml_graph_get_tensor(graph, "logits");

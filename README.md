@@ -1121,14 +1121,14 @@ Debug builds accept `sk_debug`, `sk_debug_runtime`, `sk_debug_api`, `sk_debug_ad
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Health check |
-| GET | `/startup` | Startup status check |
-| GET | `/metrics` | Metrics (JSON format) |
-| GET | `/metrics/prom` | Prometheus metrics |
-| GET | `/v0/logs?tail=200` | Tail runtime logs (JSON) |
-| GET | `/log/level` | Get current log level |
-| POST | `/log/level` | Change log level |
-| GET | `/internal-error` | Intentional error (debug) |
+| GET | `/api/health` | Health check |
+| GET | `/api/startup` | Startup status check |
+| GET | `/api/metrics` | Metrics (JSON format) |
+| GET | `/api/metrics/prom` | Prometheus metrics |
+| GET | `/api/logs?tail=200` | Tail runtime logs (JSON) |
+| GET | `/api/log/level` | Get current log level |
+| POST | `/api/log/level` | Change log level |
+| GET | `/api/internal-error` | Intentional error (debug) |
 
 ### Request/Response Examples
 

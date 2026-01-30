@@ -5,6 +5,7 @@
 
 #include "ggml_model.h"
 #include <ggml-cpu.h>
+#include "../ggml/src/ggml-quants.h"
 #ifdef STCPP_USE_METAL
 #include <ggml-metal.h>
 #endif
@@ -20,6 +21,8 @@
 #include <fstream>
 #include <filesystem>
 #include <cstring>
+#include <cstdlib>
+#include <cctype>
 #include <algorithm>
 #include <cmath>
 
@@ -100,16 +103,206 @@ static void bf16_to_f32_buffer(const uint16_t* src, float* dst, size_t n_element
     }
 }
 
+static inline float bf16_to_f32_value(uint16_t value) {
+    uint32_t bits = static_cast<uint32_t>(value) << 16;
+    float val;
+    memcpy(&val, &bits, sizeof(float));
+    return val;
+}
+
 static void f16_to_f32_buffer(const ggml_fp16_t* src, float* dst, size_t n_elements) {
     ggml_fp16_to_fp32_row(src, dst, static_cast<int>(n_elements));
+}
+
+static bool stcpp_env_flag_enabled(const char* name) {
+    const char* env = std::getenv(name);
+    return env && *env && std::strcmp(env, "0") != 0;
+}
+
+static bool stcpp_disable_mxfp4(stcpp_backend_type backend_type) {
+    static int env_force = -1;
+    static int env_disable = -1;
+
+    if (env_force == -1) {
+        env_force = stcpp_env_flag_enabled("STCPP_FORCE_MXFP4") ? 1 : 0;
+    }
+    if (env_disable == -1) {
+        env_disable = stcpp_env_flag_enabled("STCPP_DISABLE_MXFP4") ? 1 : 0;
+    }
+
+    if (env_force == 1) {
+        return false;
+    }
+    if (env_disable == 1) {
+        return true;
+    }
+
+#ifdef STCPP_USE_METAL
+    if (backend_type == STCPP_BACKEND_METAL) {
+        return true;
+    }
+#endif
+
+    return false;
+}
+
+static enum ggml_type stcpp_moe_weight_type(stcpp_backend_type backend_type) {
+    const char* env = std::getenv("STCPP_MOE_WEIGHT_TYPE");
+    if (env && *env) {
+        std::string value(env);
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (value == "mxfp4") return GGML_TYPE_MXFP4;
+        if (value == "q4_0" || value == "q4") return GGML_TYPE_Q4_0;
+        if (value == "f16") return GGML_TYPE_F16;
+    }
+
+    return stcpp_disable_mxfp4(backend_type) ? GGML_TYPE_Q4_0 : GGML_TYPE_MXFP4;
+}
+
+static bool stcpp_gate_up_interleaved() {
+    const char* env = std::getenv("STCPP_GATE_UP_LAYOUT");
+    if (env && *env) {
+        std::string value(env);
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (value == "contiguous" || value == "concat" || value == "stacked") return false;
+        if (value == "interleaved" || value == "interleave") return true;
+    }
+    return true;
+}
+
+static bool stcpp_convert_mxfp4_to_q4_0(
+    const std::vector<uint8_t>& packed,
+    int64_t n_rows,
+    int64_t n_cols,
+    std::vector<block_q4_0>& out,
+    std::string& error
+) {
+    if (n_rows <= 0 || n_cols <= 0) {
+        error = "mxfp4->q4_0 conversion invalid shape";
+        return false;
+    }
+
+    if (n_cols % QK_MXFP4 != 0) {
+        error = "mxfp4->q4_0 conversion requires column count divisible by 32";
+        return false;
+    }
+
+    const size_t src_row_size = ggml_row_size(GGML_TYPE_MXFP4, n_cols);
+    const size_t expected_src = src_row_size * static_cast<size_t>(n_rows);
+    if (packed.size() != expected_src) {
+        error = "mxfp4->q4_0 conversion packed size mismatch";
+        return false;
+    }
+
+    const int64_t n_blocks = n_cols / QK4_0;
+    out.resize(static_cast<size_t>(n_rows) * static_cast<size_t>(n_blocks));
+
+    std::vector<float> row_f32(static_cast<size_t>(n_cols));
+    for (int64_t r = 0; r < n_rows; ++r) {
+        const auto* src = reinterpret_cast<const block_mxfp4*>(packed.data() + r * src_row_size);
+        dequantize_row_mxfp4(src, row_f32.data(), n_cols);
+
+        block_q4_0* dst = out.data() + r * n_blocks;
+        quantize_row_q4_0_ref(row_f32.data(), dst, n_cols);
+    }
+
+    return true;
+}
+
+static bool stcpp_convert_mxfp4_to_f16(
+    const std::vector<uint8_t>& packed,
+    int64_t n_rows,
+    int64_t n_cols,
+    std::vector<ggml_fp16_t>& out,
+    std::string& error
+) {
+    if (n_rows <= 0 || n_cols <= 0) {
+        error = "mxfp4->f16 conversion invalid shape";
+        return false;
+    }
+
+    if (n_cols % QK_MXFP4 != 0) {
+        error = "mxfp4->f16 conversion requires column count divisible by 32";
+        return false;
+    }
+
+    const size_t src_row_size = ggml_row_size(GGML_TYPE_MXFP4, n_cols);
+    const size_t expected_src = src_row_size * static_cast<size_t>(n_rows);
+    if (packed.size() != expected_src) {
+        error = "mxfp4->f16 conversion packed size mismatch";
+        return false;
+    }
+
+    out.resize(static_cast<size_t>(n_rows) * static_cast<size_t>(n_cols));
+
+    std::vector<float> row_f32(static_cast<size_t>(n_cols));
+    static bool stcpp_mxfp4_row0_logged = false;
+    for (int64_t r = 0; r < n_rows; ++r) {
+        const auto* src = reinterpret_cast<const block_mxfp4*>(packed.data() + r * src_row_size);
+        dequantize_row_mxfp4(src, row_f32.data(), n_cols);
+        if (!stcpp_mxfp4_row0_logged && r == 0) {
+            stcpp_mxfp4_row0_logged = true;
+            uint32_t bits = 0;
+            if (src[0].e < 2) {
+                bits = 0x00200000u << src[0].e;
+            } else {
+                bits = static_cast<uint32_t>(src[0].e - 1) << 23;
+            }
+            float d0 = 0.0f;
+            memcpy(&d0, &bits, sizeof(float));
+            fprintf(stderr, "[DEBUG] mxfp4 row0 e=%u d=%g qs0=%02x qs1=%02x\n",
+                    src[0].e, d0, src[0].qs[0], src[0].qs[1]);
+            fprintf(stderr, "[DEBUG] mxfp4 row0 first5: %.6f %.6f %.6f %.6f %.6f\n",
+                    row_f32[0], row_f32[1], row_f32[2], row_f32[3], row_f32[4]);
+            fflush(stderr);
+        }
+
+        ggml_fp16_t* dst = out.data() + r * n_cols;
+        ggml_fp32_to_fp16_row(row_f32.data(), dst, static_cast<int>(n_cols));
+    }
+
+    return true;
+}
+
+static inline void stcpp_transform_mxfp4_block(const uint8_t* in, uint8_t* out) {
+    // Mirrors llama.cpp convert_hf_to_gguf.py transform_nibble_layout().
+    for (int i = 0; i < 8; ++i) {
+        const uint8_t a = in[i];
+        const uint8_t b = in[8 + i];
+        const uint8_t temp_hi = static_cast<uint8_t>((a & 0xF0) | ((b >> 4) & 0x0F));
+        const uint8_t temp_lo = static_cast<uint8_t>(((a << 4) & 0xF0) | (b & 0x0F));
+        out[2 * i + 0] = static_cast<uint8_t>(((temp_lo & 0xF0) >> 4) | ((temp_lo & 0x0F) << 4));
+        out[2 * i + 1] = static_cast<uint8_t>(((temp_hi & 0xF0) >> 4) | ((temp_hi & 0x0F) << 4));
+    }
+}
+
+static bool stcpp_mxfp4_transform_enabled() {
+    const char* env = std::getenv("STCPP_MXFP4_TRANSFORM");
+    if (env && *env) {
+        std::string value(env);
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (value == "0" || value == "false" || value == "no" || value == "off") {
+            return false;
+        }
+        if (value == "1" || value == "true" || value == "yes" || value == "on") {
+            return true;
+        }
+    }
+    return true;
 }
 
 bool pack_mxfp4_blocks_to_ggml(
     const uint8_t* blocks,
     const uint8_t* scales,
+    size_t blocks_size,
+    size_t scales_size,
     const std::vector<int64_t>& blocks_shape,
     const std::vector<int64_t>& scales_shape,
     int64_t row_offset,
+    int64_t row_stride,
     int64_t row_count,
     int64_t n_cols,
     std::vector<uint8_t>& out,
@@ -137,7 +330,16 @@ bool pack_mxfp4_blocks_to_ggml(
         error = "mxfp4 scales shape mismatch";
         return false;
     }
-    if (row_offset < 0 || row_count <= 0 || row_offset + row_count > n_rows_total) {
+    if (row_stride <= 0) {
+        error = "mxfp4 row stride must be positive";
+        return false;
+    }
+    if (row_offset < 0 || row_count <= 0) {
+        error = "mxfp4 row range out of bounds";
+        return false;
+    }
+    const int64_t last_row = row_offset + (row_count - 1) * row_stride;
+    if (last_row < 0 || last_row >= n_rows_total) {
         error = "mxfp4 row range out of bounds";
         return false;
     }
@@ -146,24 +348,64 @@ bool pack_mxfp4_blocks_to_ggml(
         return false;
     }
 
+    const size_t expected_blocks = static_cast<size_t>(n_expert) *
+                                   static_cast<size_t>(n_rows_total) *
+                                   static_cast<size_t>(n_blocks) *
+                                   static_cast<size_t>(block_bytes);
+    const size_t expected_scales = static_cast<size_t>(n_expert) *
+                                   static_cast<size_t>(n_rows_total) *
+                                   static_cast<size_t>(n_blocks);
+    if (blocks_size != expected_blocks) {
+        error = "mxfp4 blocks size mismatch";
+        return false;
+    }
+    if (scales_size != expected_scales) {
+        error = "mxfp4 scales size mismatch";
+        return false;
+    }
+
     const size_t row_size = static_cast<size_t>(n_blocks) * 17;
     const size_t total_rows = static_cast<size_t>(n_expert) * static_cast<size_t>(row_count);
     out.assign(row_size * total_rows, 0);
+    static bool stcpp_mxfp4_block_logged = false;
+
+    const size_t max_idx = expected_scales; // number of scale entries == number of blocks
 
     for (int64_t e = 0; e < n_expert; ++e) {
         for (int64_t r = 0; r < row_count; ++r) {
-            const int64_t src_row = row_offset + r;
+            const int64_t src_row = row_offset + r * row_stride;
             const size_t dst_row_index = static_cast<size_t>(e) * row_count + static_cast<size_t>(r);
             uint8_t* dst = out.data() + dst_row_index * row_size;
 
             for (int64_t b = 0; b < n_blocks; ++b) {
                 const size_t idx = static_cast<size_t>((e * n_rows_total + src_row) * n_blocks + b);
+                if (idx >= max_idx) {
+                    error = "mxfp4 index out of bounds";
+                    return false;
+                }
                 const uint8_t scale = scales[idx];
                 const uint8_t* block = blocks + idx * block_bytes;
                 const size_t dst_off = static_cast<size_t>(b) * 17;
+                uint8_t transformed[16];
+                if (stcpp_mxfp4_transform_enabled()) {
+                    stcpp_transform_mxfp4_block(block, transformed);
+                } else {
+                    memcpy(transformed, block, sizeof(transformed));
+                }
+
+                if (!stcpp_mxfp4_block_logged && e == 0 && r == 0 && b == 0) {
+                    stcpp_mxfp4_block_logged = true;
+                    fprintf(stderr, "[DEBUG] mxfp4 pack row_offset=%lld stride=%lld scale=%u block0=",
+                            (long long)row_offset, (long long)row_stride, scale);
+                    for (int i = 0; i < 16; ++i) {
+                        fprintf(stderr, "%02x", transformed[i]);
+                    }
+                    fprintf(stderr, "\n");
+                    fflush(stderr);
+                }
 
                 dst[dst_off] = scale;
-                memcpy(dst + dst_off + 1, block, 16);
+                memcpy(dst + dst_off + 1, transformed, 16);
             }
         }
     }
@@ -335,6 +577,188 @@ bool load_hparams(
         return num_str.empty() ? 0.0f : std::stof(num_str);
     };
 
+    auto find_string_value = [&](const std::string& key) -> std::string {
+        std::string search = "\"" + key + "\"";
+        size_t pos = content.find(search);
+        if (pos == std::string::npos) return "";
+
+        pos = content.find(':', pos);
+        if (pos == std::string::npos) return "";
+
+        pos = content.find('"', pos);
+        if (pos == std::string::npos) return "";
+
+        pos++;
+        size_t end_pos = content.find('"', pos);
+        if (end_pos == std::string::npos) return "";
+
+        return content.substr(pos, end_pos - pos);
+    };
+
+    auto find_int_value_in = [&](const std::string& haystack, const std::string& key) -> int32_t {
+        std::string search = "\"" + key + "\"";
+        size_t pos = haystack.find(search);
+        if (pos == std::string::npos) return 0;
+
+        pos = haystack.find(':', pos);
+        if (pos == std::string::npos) return 0;
+
+        pos++;
+        while (pos < haystack.size() && (haystack[pos] == ' ' || haystack[pos] == '\t')) {
+            pos++;
+        }
+
+        int32_t value = 0;
+        bool negative = false;
+        if (pos < haystack.size() && haystack[pos] == '-') {
+            negative = true;
+            pos++;
+        }
+        while (pos < haystack.size() && haystack[pos] >= '0' && haystack[pos] <= '9') {
+            value = value * 10 + (haystack[pos] - '0');
+            pos++;
+        }
+        return negative ? -value : value;
+    };
+
+    auto find_float_value_in = [&](const std::string& haystack, const std::string& key) -> float {
+        std::string search = "\"" + key + "\"";
+        size_t pos = haystack.find(search);
+        if (pos == std::string::npos) return 0.0f;
+
+        pos = haystack.find(':', pos);
+        if (pos == std::string::npos) return 0.0f;
+
+        pos++;
+        while (pos < haystack.size() && (haystack[pos] == ' ' || haystack[pos] == '\t')) {
+            pos++;
+        }
+
+        std::string num_str;
+        while (pos < haystack.size() &&
+               (haystack[pos] == '-' || haystack[pos] == '.' ||
+                haystack[pos] == 'e' || haystack[pos] == 'E' ||
+                (haystack[pos] >= '0' && haystack[pos] <= '9'))) {
+            num_str += haystack[pos];
+            pos++;
+        }
+        return num_str.empty() ? 0.0f : std::stof(num_str);
+    };
+
+    auto find_string_value_in = [&](const std::string& haystack, const std::string& key) -> std::string {
+        std::string search = "\"" + key + "\"";
+        size_t pos = haystack.find(search);
+        if (pos == std::string::npos) return "";
+
+        pos = haystack.find(':', pos);
+        if (pos == std::string::npos) return "";
+
+        pos = haystack.find('"', pos);
+        if (pos == std::string::npos) return "";
+
+        pos++;
+        size_t end_pos = haystack.find('"', pos);
+        if (end_pos == std::string::npos) return "";
+
+        return haystack.substr(pos, end_pos - pos);
+    };
+
+    auto find_object_span = [&](const std::string& key, size_t& start, size_t& end_pos) -> bool {
+        std::string search = "\"" + key + "\"";
+        size_t pos = content.find(search);
+        if (pos == std::string::npos) return false;
+
+        pos = content.find('{', pos);
+        if (pos == std::string::npos) return false;
+
+        bool in_string = false;
+        int depth = 0;
+        char prev = '\0';
+        for (size_t i = pos; i < content.size(); ++i) {
+            char c = content[i];
+            if (c == '"' && prev != '\\') {
+                in_string = !in_string;
+            }
+            if (!in_string) {
+                if (c == '{') {
+                    if (depth == 0) start = i;
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        end_pos = i;
+                        return true;
+                    }
+                }
+            }
+            prev = c;
+        }
+        return false;
+    };
+
+    auto find_array_span = [&](const std::string& key, size_t& start, size_t& end_pos) -> bool {
+        std::string search = "\"" + key + "\"";
+        size_t pos = content.find(search);
+        if (pos == std::string::npos) return false;
+
+        pos = content.find('[', pos);
+        if (pos == std::string::npos) return false;
+
+        bool in_string = false;
+        int depth = 0;
+        char prev = '\0';
+        for (size_t i = pos; i < content.size(); ++i) {
+            char c = content[i];
+            if (c == '"' && prev != '\\') {
+                in_string = !in_string;
+            }
+            if (!in_string) {
+                if (c == '[') {
+                    if (depth == 0) start = i;
+                    depth++;
+                } else if (c == ']') {
+                    depth--;
+                    if (depth == 0) {
+                        end_pos = i;
+                        return true;
+                    }
+                }
+            }
+            prev = c;
+        }
+        return false;
+    };
+
+    auto parse_string_array = [&](const std::string& key) -> std::vector<std::string> {
+        size_t start = 0;
+        size_t end_pos = 0;
+        if (!find_array_span(key, start, end_pos) || end_pos <= start) {
+            return {};
+        }
+        std::vector<std::string> values;
+        bool in_string = false;
+        size_t str_start = 0;
+        char prev = '\0';
+        for (size_t i = start; i <= end_pos; ++i) {
+            char c = content[i];
+            if (c == '"' && prev != '\\') {
+                if (!in_string) {
+                    in_string = true;
+                    str_start = i + 1;
+                } else {
+                    if (i > str_start) {
+                        values.emplace_back(content.substr(str_start, i - str_start));
+                    } else {
+                        values.emplace_back("");
+                    }
+                    in_string = false;
+                }
+            }
+            prev = c;
+        }
+        return values;
+    };
+
     // Extract parameters with fallback names
     hparams.n_vocab = find_int_value("vocab_size");
 
@@ -380,6 +804,56 @@ bool load_hparams(
     hparams.rope_freq_base = find_float_value("rope_theta");
     if (hparams.rope_freq_base == 0.0f) hparams.rope_freq_base = 10000.0f;
 
+    // Default original context length (for rope scaling)
+    hparams.n_ctx_orig = find_int_value("initial_context_length");
+    if (hparams.n_ctx_orig == 0) {
+        hparams.n_ctx_orig = hparams.n_ctx_train;
+    }
+
+    // RoPE scaling (e.g., YARN)
+    size_t rope_start = 0;
+    size_t rope_end = 0;
+    if (find_object_span("rope_scaling", rope_start, rope_end) && rope_end > rope_start) {
+        std::string rope_obj = content.substr(rope_start, rope_end - rope_start + 1);
+        float rope_factor = find_float_value_in(rope_obj, "factor");
+        if (rope_factor == 0.0f) {
+            rope_factor = find_float_value_in(rope_obj, "scaling_factor");
+        }
+        std::string rope_type = find_string_value_in(rope_obj, "rope_type");
+        if (rope_type.empty()) {
+            rope_type = find_string_value_in(rope_obj, "type");
+        }
+
+        int32_t rope_orig_ctx = find_int_value_in(rope_obj, "original_max_position_embeddings");
+        if (rope_orig_ctx > 0) {
+            hparams.n_ctx_orig = rope_orig_ctx;
+        }
+
+        if (rope_factor > 0.0f) {
+            hparams.rope_freq_scale = 1.0f / rope_factor;
+        }
+
+        if (rope_type == "yarn") {
+            hparams.rope_ext_factor = 1.0f;
+            float beta_fast = find_float_value_in(rope_obj, "beta_fast");
+            float beta_slow = find_float_value_in(rope_obj, "beta_slow");
+            hparams.rope_beta_fast = (beta_fast != 0.0f) ? beta_fast : 32.0f;
+            hparams.rope_beta_slow = (beta_slow != 0.0f) ? beta_slow : 1.0f;
+
+            const float factor = (rope_factor > 0.0f) ? rope_factor : 1.0f;
+            if (factor > 1.0f) {
+                auto get_mscale = [](float scale, float mscale) {
+                    return scale <= 1.0f ? 1.0f : (0.1f * mscale * logf(scale) + 1.0f);
+                };
+                float attn = get_mscale(factor, 1.0f);
+                attn *= 1.0f / (1.0f + 0.1f * logf(factor));
+                hparams.rope_attn_factor = attn;
+            } else {
+                hparams.rope_attn_factor = 1.0f;
+            }
+        }
+    }
+
     // Calculate rotation dimensions
     hparams.n_rot = hparams.head_dim > 0 ? hparams.head_dim : (hparams.n_embd / hparams.n_head);
 
@@ -395,6 +869,19 @@ bool load_hparams(
     // Check for GQA
     hparams.use_gqa = (hparams.n_head_kv != hparams.n_head);
 
+    // Sliding window attention (optional)
+    hparams.sliding_window = find_int_value("sliding_window");
+    auto layer_types = parse_string_array("layer_types");
+    if (!layer_types.empty()) {
+        hparams.layer_is_sliding.resize(layer_types.size(), 0);
+        for (size_t i = 0; i < layer_types.size(); ++i) {
+            const std::string& t = layer_types[i];
+            if (t.find("sliding") != std::string::npos) {
+                hparams.layer_is_sliding[i] = 1;
+            }
+        }
+    }
+
     // Detect architecture
     hparams.architecture = detect_architecture(model_dir, error);
     hparams.use_moe = (hparams.architecture == "gpt_oss" &&
@@ -402,24 +889,6 @@ bool load_hparams(
                        hparams.n_expert_used > 0);
 
     // Parse torch_dtype for weight data type
-    auto find_string_value = [&](const std::string& key) -> std::string {
-        std::string search = "\"" + key + "\"";
-        size_t pos = content.find(search);
-        if (pos == std::string::npos) return "";
-
-        pos = content.find(':', pos);
-        if (pos == std::string::npos) return "";
-
-        pos = content.find('"', pos);
-        if (pos == std::string::npos) return "";
-
-        pos++;
-        size_t end_pos = content.find('"', pos);
-        if (end_pos == std::string::npos) return "";
-
-        return content.substr(pos, end_pos - pos);
-    };
-
     std::string torch_dtype = find_string_value("torch_dtype");
     if (torch_dtype == "bfloat16") {
         hparams.weight_type = GGML_TYPE_BF16;
@@ -563,7 +1032,8 @@ static bool create_layer_tensors(
     struct ggml_context* ctx,
     LayerTensors& layer,
     const ModelHParams& hparams,
-    int layer_idx
+    int layer_idx,
+    enum ggml_type moe_wtype
 ) {
     const int32_t n_embd = hparams.n_embd;
     const int32_t n_head = hparams.n_head;
@@ -612,6 +1082,17 @@ static bool create_layer_tensors(
     layer.wo = ggml_new_tensor_2d(ctx, wtype, q_dim, n_embd);
     ggml_set_name(layer.wo, name);
 
+    // Output projection bias (optional, used by gpt-oss)
+    snprintf(name, sizeof(name), "blk.%d.attn_output.bias", layer_idx);
+    layer.bo = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_embd);
+    ggml_set_name(layer.bo, name);
+
+    if (hparams.architecture == "gpt_oss") {
+        snprintf(name, sizeof(name), "blk.%d.attn_sinks", layer_idx);
+        layer.attn_sinks = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_head);
+        ggml_set_name(layer.attn_sinks, name);
+    }
+
     // FFN norm (always F32 for metal binary ops)
     snprintf(name, sizeof(name), "blk.%d.ffn_norm.weight", layer_idx);
     layer.ffn_norm = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_embd);
@@ -629,15 +1110,15 @@ static bool create_layer_tensors(
         ggml_set_name(layer.moe_router_bias, name);
 
         snprintf(name, sizeof(name), "blk.%d.moe_gate_exps.weight", layer_idx);
-        layer.moe_gate_exps = ggml_new_tensor_3d(ctx, GGML_TYPE_MXFP4, n_embd, n_ff, hparams.n_expert);
+        layer.moe_gate_exps = ggml_new_tensor_3d(ctx, moe_wtype, n_embd, n_ff, hparams.n_expert);
         ggml_set_name(layer.moe_gate_exps, name);
 
         snprintf(name, sizeof(name), "blk.%d.moe_up_exps.weight", layer_idx);
-        layer.moe_up_exps = ggml_new_tensor_3d(ctx, GGML_TYPE_MXFP4, n_embd, n_ff, hparams.n_expert);
+        layer.moe_up_exps = ggml_new_tensor_3d(ctx, moe_wtype, n_embd, n_ff, hparams.n_expert);
         ggml_set_name(layer.moe_up_exps, name);
 
         snprintf(name, sizeof(name), "blk.%d.moe_down_exps.weight", layer_idx);
-        layer.moe_down_exps = ggml_new_tensor_3d(ctx, GGML_TYPE_MXFP4, n_ff, n_embd, hparams.n_expert);
+        layer.moe_down_exps = ggml_new_tensor_3d(ctx, moe_wtype, n_ff, n_embd, hparams.n_expert);
         ggml_set_name(layer.moe_down_exps, name);
 
         snprintf(name, sizeof(name), "blk.%d.moe_gate_exps.bias", layer_idx);
@@ -670,7 +1151,7 @@ static bool create_layer_tensors(
 }
 
 /* Estimate memory needed for model weights */
-static size_t estimate_weight_memory(const ModelHParams& hparams) {
+static size_t estimate_weight_memory(const ModelHParams& hparams, enum ggml_type moe_wtype) {
     size_t mem = 0;
 
     // Get weight type size (2 bytes for F16/BF16, 4 bytes for F32)
@@ -702,14 +1183,18 @@ static size_t estimate_weight_memory(const ModelHParams& hparams) {
         mem += (size_t)q_dim * sizeof(float);   // bq
         mem += (size_t)kv_dim * sizeof(float);  // bk
         mem += (size_t)kv_dim * sizeof(float);  // bv
+        mem += (size_t)n_embd * sizeof(float);  // bo
+        if (hparams.architecture == "gpt_oss") {
+            mem += (size_t)n_head * sizeof(float); // attn_sinks
+        }
 
 
         // FFN norm (always F32)
         mem += n_embd * sizeof(float);
 
         if (hparams.use_moe) {
-            const size_t row_size_gate = ggml_row_size(GGML_TYPE_MXFP4, n_embd);
-            const size_t row_size_down = ggml_row_size(GGML_TYPE_MXFP4, n_ff);
+            const size_t row_size_gate = ggml_row_size(moe_wtype, n_embd);
+            const size_t row_size_down = ggml_row_size(moe_wtype, n_ff);
 
             mem += row_size_gate * (size_t)n_ff * (size_t)hparams.n_expert;  // gate
             mem += row_size_gate * (size_t)n_ff * (size_t)hparams.n_expert;  // up
@@ -788,11 +1273,18 @@ GgmlModel* load_ggml_model(
     fprintf(stderr, "[DEBUG] load_ggml_model: backend created\n");
     fflush(stderr);
 
+    const enum ggml_type moe_wtype = stcpp_moe_weight_type(backend_type);
+    if (model->hparams.use_moe && moe_wtype != GGML_TYPE_MXFP4) {
+        const char* type_name = (moe_wtype == GGML_TYPE_F16) ? "F16" : "Q4_0";
+        fprintf(stderr, "[DEBUG] load_ggml_model: MXFP4 disabled (fallback to %s)\n", type_name);
+        fflush(stderr);
+    }
+
     fprintf(stderr, "[DEBUG] load_ggml_model: estimating memory\n");
     fflush(stderr);
 
     // Estimate memory needed
-    size_t weight_mem = estimate_weight_memory(model->hparams);
+    size_t weight_mem = estimate_weight_memory(model->hparams, moe_wtype);
 
     fprintf(stderr, "[DEBUG] load_ggml_model: weight_mem=%zu, creating ggml context\n", weight_mem);
     fflush(stderr);
@@ -836,7 +1328,7 @@ GgmlModel* load_ggml_model(
     // Layer tensors
     tensors.layers.resize(hparams.n_layer);
     for (int i = 0; i < hparams.n_layer; ++i) {
-        if (!create_layer_tensors(model->ctx_weights, tensors.layers[i], hparams, i)) {
+        if (!create_layer_tensors(model->ctx_weights, tensors.layers[i], hparams, i, moe_wtype)) {
             error = "Failed to create layer tensors";
             fprintf(stderr, "[DEBUG] load_ggml_model: create_layer_tensors failed at layer %d\n", i);
             fflush(stderr);
@@ -913,6 +1405,8 @@ GgmlModel* load_ggml_model(
     struct Mxfp4Source {
         const uint8_t* blocks = nullptr;
         const uint8_t* scales = nullptr;
+        size_t blocks_size = 0;
+        size_t scales_size = 0;
         std::vector<int64_t> blocks_shape;
         std::vector<int64_t> scales_shape;
     };
@@ -995,11 +1489,13 @@ GgmlModel* load_ggml_model(
                 GptOssMoeSources& moe = gpt_oss_moe_sources[layer_idx];
                 if (norm_name.find("mlp.experts.gate_up_proj_blocks") != std::string::npos) {
                     moe.gate_up.blocks = src_data;
+                    moe.gate_up.blocks_size = tensor_info.data_size;
                     moe.gate_up.blocks_shape = tensor_info.shape;
                     continue;
                 }
                 if (norm_name.find("mlp.experts.gate_up_proj_scales") != std::string::npos) {
                     moe.gate_up.scales = src_data;
+                    moe.gate_up.scales_size = tensor_info.data_size;
                     moe.gate_up.scales_shape = tensor_info.shape;
                     continue;
                 }
@@ -1010,11 +1506,13 @@ GgmlModel* load_ggml_model(
                 }
                 if (norm_name.find("mlp.experts.down_proj_blocks") != std::string::npos) {
                     moe.down.blocks = src_data;
+                    moe.down.blocks_size = tensor_info.data_size;
                     moe.down.blocks_shape = tensor_info.shape;
                     continue;
                 }
                 if (norm_name.find("mlp.experts.down_proj_scales") != std::string::npos) {
                     moe.down.scales = src_data;
+                    moe.down.scales_size = tensor_info.data_size;
                     moe.down.scales_shape = tensor_info.shape;
                     continue;
                 }
@@ -1029,10 +1527,13 @@ GgmlModel* load_ggml_model(
                                 tensor_info.name.find("attn_q.bias") != std::string::npos ||
                                 tensor_info.name.find("attn_k.bias") != std::string::npos ||
                                 tensor_info.name.find("attn_v.bias") != std::string::npos);
+            bool is_attn_out_bias = (tensor_info.name.find("o_proj.bias") != std::string::npos ||
+                                     tensor_info.name.find("attn_output.bias") != std::string::npos ||
+                                     tensor_info.name.find("self_attn.o") != std::string::npos);
             bool is_moe_bias = hparams.use_moe &&
                                (norm_name.find("mlp.router.bias") != std::string::npos ||
                                 norm_name.find("mlp.experts.down_proj_bias") != std::string::npos);
-            if (is_bias && !is_qkv_bias && !is_moe_bias) {
+            if (is_bias && !is_qkv_bias && !is_attn_out_bias && !is_moe_bias) {
                 continue;
             }
 
@@ -1122,11 +1623,25 @@ GgmlModel* load_ggml_model(
                                      layer_part.find("self_attn.v") != std::string::npos) {
                                 ggml_tensor = layer.wv;
                             }
+                            // O projection bias (optional)
+                            else if ((layer_part.find("o_proj.bias") != std::string::npos ||
+                                      layer_part.find("attn_output.bias") != std::string::npos ||
+                                      (layer_part.find("self_attn.o") != std::string::npos && layer_part.find(".bias") != std::string::npos))) {
+                                ggml_tensor = layer.bo;
+                                layer.has_bo = true;
+                            }
                             // O projection
                             else if (layer_part.find("attn_output") != std::string::npos ||
                                      layer_part.find("o_proj") != std::string::npos ||
                                      layer_part.find("self_attn.o") != std::string::npos) {
                                 ggml_tensor = layer.wo;
+                            }
+                            // Attention sinks (gpt-oss)
+                            else if (layer_part.find("sinks") != std::string::npos) {
+                                if (layer.attn_sinks) {
+                                    ggml_tensor = layer.attn_sinks;
+                                    layer.has_attn_sinks = true;
+                                }
                             }
                             // FFN norm
                             else if (layer_part.find("ffn_norm") != std::string::npos ||
@@ -1215,13 +1730,22 @@ GgmlModel* load_ggml_model(
                 return nullptr;
             }
 
+            const bool interleaved_gate_up = stcpp_gate_up_interleaved();
+            const int64_t gate_row_offset = 0;
+            const int64_t gate_row_stride = interleaved_gate_up ? 2 : 1;
+            const int64_t up_row_offset = interleaved_gate_up ? 1 : hparams.n_ff;
+            const int64_t up_row_stride = interleaved_gate_up ? 2 : 1;
+
             std::vector<uint8_t> packed;
             if (!pack_mxfp4_blocks_to_ggml(
                     moe_src.gate_up.blocks,
                     moe_src.gate_up.scales,
+                    moe_src.gate_up.blocks_size,
+                    moe_src.gate_up.scales_size,
                     moe_src.gate_up.blocks_shape,
                     moe_src.gate_up.scales_shape,
-                    0,
+                    gate_row_offset,
+                    gate_row_stride,
                     hparams.n_ff,
                     hparams.n_embd,
                     packed,
@@ -1229,14 +1753,69 @@ GgmlModel* load_ggml_model(
                 error = "gpt-oss gate packing failed for layer " + std::to_string(layer_idx) + ": " + error;
                 return nullptr;
             }
-            ggml_backend_tensor_set(layer.moe_gate_exps, packed.data(), 0, packed.size());
+            if (moe_wtype == GGML_TYPE_Q4_0) {
+                std::vector<block_q4_0> q4;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
+                if (!stcpp_convert_mxfp4_to_q4_0(packed, n_rows, hparams.n_embd, q4, error)) {
+                    error = "gpt-oss gate q4_0 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t q4_bytes = q4.size() * sizeof(block_q4_0);
+                if (q4_bytes != ggml_nbytes(layer.moe_gate_exps)) {
+                    error = "gpt-oss gate q4_0 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_gate_exps, q4.data(), 0, q4_bytes);
+            } else if (moe_wtype == GGML_TYPE_F16) {
+                std::vector<ggml_fp16_t> f16;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
+                if (layer_idx == 3) {
+                    std::vector<float> dbg_row(static_cast<size_t>(hparams.n_embd));
+                    const auto* src = reinterpret_cast<const block_mxfp4*>(packed.data());
+                    uint32_t bits = 0;
+                    if (src[0].e < 2) {
+                        bits = 0x00200000u << src[0].e;
+                    } else {
+                        bits = static_cast<uint32_t>(src[0].e - 1) << 23;
+                    }
+                    float d0 = 0.0f;
+                    memcpy(&d0, &bits, sizeof(float));
+                    dequantize_row_mxfp4(src, dbg_row.data(), hparams.n_embd);
+                    fprintf(stderr, "[DEBUG] gate packed row0 e=%u d=%g first5: %.6f %.6f %.6f %.6f %.6f\n",
+                            src[0].e, d0, dbg_row[0], dbg_row[1], dbg_row[2], dbg_row[3], dbg_row[4]);
+                    fflush(stderr);
+                }
+                if (!stcpp_convert_mxfp4_to_f16(packed, n_rows, hparams.n_embd, f16, error)) {
+                    error = "gpt-oss gate f16 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                if (layer_idx == 3) {
+                    float dbg[5] = {};
+                    const int64_t dbg_count = std::min<int64_t>(5, static_cast<int64_t>(f16.size()));
+                    ggml_fp16_to_fp32_row(f16.data(), dbg, static_cast<int>(dbg_count));
+                    fprintf(stderr, "[DEBUG] gate f16 pre-upload first5: %.6f %.6f %.6f %.6f %.6f\n",
+                            dbg[0], dbg[1], dbg[2], dbg[3], dbg[4]);
+                    fflush(stderr);
+                }
+                const size_t f16_bytes = f16.size() * sizeof(ggml_fp16_t);
+                if (f16_bytes != ggml_nbytes(layer.moe_gate_exps)) {
+                    error = "gpt-oss gate f16 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_gate_exps, f16.data(), 0, f16_bytes);
+            } else {
+                ggml_backend_tensor_set(layer.moe_gate_exps, packed.data(), 0, packed.size());
+            }
 
             if (!pack_mxfp4_blocks_to_ggml(
                     moe_src.gate_up.blocks,
                     moe_src.gate_up.scales,
+                    moe_src.gate_up.blocks_size,
+                    moe_src.gate_up.scales_size,
                     moe_src.gate_up.blocks_shape,
                     moe_src.gate_up.scales_shape,
-                    hparams.n_ff,
+                    up_row_offset,
+                    up_row_stride,
                     hparams.n_ff,
                     hparams.n_embd,
                     packed,
@@ -1244,14 +1823,45 @@ GgmlModel* load_ggml_model(
                 error = "gpt-oss up packing failed for layer " + std::to_string(layer_idx) + ": " + error;
                 return nullptr;
             }
-            ggml_backend_tensor_set(layer.moe_up_exps, packed.data(), 0, packed.size());
+            if (moe_wtype == GGML_TYPE_Q4_0) {
+                std::vector<block_q4_0> q4;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
+                if (!stcpp_convert_mxfp4_to_q4_0(packed, n_rows, hparams.n_embd, q4, error)) {
+                    error = "gpt-oss up q4_0 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t q4_bytes = q4.size() * sizeof(block_q4_0);
+                if (q4_bytes != ggml_nbytes(layer.moe_up_exps)) {
+                    error = "gpt-oss up q4_0 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_up_exps, q4.data(), 0, q4_bytes);
+            } else if (moe_wtype == GGML_TYPE_F16) {
+                std::vector<ggml_fp16_t> f16;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
+                if (!stcpp_convert_mxfp4_to_f16(packed, n_rows, hparams.n_embd, f16, error)) {
+                    error = "gpt-oss up f16 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t f16_bytes = f16.size() * sizeof(ggml_fp16_t);
+                if (f16_bytes != ggml_nbytes(layer.moe_up_exps)) {
+                    error = "gpt-oss up f16 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_up_exps, f16.data(), 0, f16_bytes);
+            } else {
+                ggml_backend_tensor_set(layer.moe_up_exps, packed.data(), 0, packed.size());
+            }
 
             if (!pack_mxfp4_blocks_to_ggml(
                     moe_src.down.blocks,
                     moe_src.down.scales,
+                    moe_src.down.blocks_size,
+                    moe_src.down.scales_size,
                     moe_src.down.blocks_shape,
                     moe_src.down.scales_shape,
                     0,
+                    1,
                     hparams.n_embd,
                     hparams.n_ff,
                     packed,
@@ -1259,7 +1869,35 @@ GgmlModel* load_ggml_model(
                 error = "gpt-oss down packing failed for layer " + std::to_string(layer_idx) + ": " + error;
                 return nullptr;
             }
-            ggml_backend_tensor_set(layer.moe_down_exps, packed.data(), 0, packed.size());
+            if (moe_wtype == GGML_TYPE_Q4_0) {
+                std::vector<block_q4_0> q4;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_embd;
+                if (!stcpp_convert_mxfp4_to_q4_0(packed, n_rows, hparams.n_ff, q4, error)) {
+                    error = "gpt-oss down q4_0 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t q4_bytes = q4.size() * sizeof(block_q4_0);
+                if (q4_bytes != ggml_nbytes(layer.moe_down_exps)) {
+                    error = "gpt-oss down q4_0 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_down_exps, q4.data(), 0, q4_bytes);
+            } else if (moe_wtype == GGML_TYPE_F16) {
+                std::vector<ggml_fp16_t> f16;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_embd;
+                if (!stcpp_convert_mxfp4_to_f16(packed, n_rows, hparams.n_ff, f16, error)) {
+                    error = "gpt-oss down f16 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t f16_bytes = f16.size() * sizeof(ggml_fp16_t);
+                if (f16_bytes != ggml_nbytes(layer.moe_down_exps)) {
+                    error = "gpt-oss down f16 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_down_exps, f16.data(), 0, f16_bytes);
+            } else {
+                ggml_backend_tensor_set(layer.moe_down_exps, packed.data(), 0, packed.size());
+            }
 
             if (moe_src.gate_up_bias) {
                 const int64_t n_expert = hparams.n_expert;
@@ -1277,8 +1915,23 @@ GgmlModel* load_ggml_model(
 
                 for (int64_t e = 0; e < n_expert; ++e) {
                     const uint16_t* row = src + e * n_ff * 2;
-                    bf16_to_f32_buffer(row, gate_bias.data() + e * n_ff, static_cast<size_t>(n_ff));
-                    bf16_to_f32_buffer(row + n_ff, up_bias.data() + e * n_ff, static_cast<size_t>(n_ff));
+                    float* gate_out = gate_bias.data() + e * n_ff;
+                    float* up_out = up_bias.data() + e * n_ff;
+                    if (interleaved_gate_up) {
+                        for (int64_t i = 0; i < n_ff; ++i) {
+                            const uint16_t gate_val = row[2 * i];
+                            const uint16_t up_val = row[2 * i + 1];
+                            gate_out[i] = bf16_to_f32_value(gate_val);
+                            up_out[i] = bf16_to_f32_value(up_val);
+                        }
+                    } else {
+                        const uint16_t* gate_row = row;
+                        const uint16_t* up_row = row + n_ff;
+                        for (int64_t i = 0; i < n_ff; ++i) {
+                            gate_out[i] = bf16_to_f32_value(gate_row[i]);
+                            up_out[i] = bf16_to_f32_value(up_row[i]);
+                        }
+                    }
                 }
 
                 ggml_backend_tensor_set(layer.moe_gate_bias, gate_bias.data(), 0, gate_bias.size() * sizeof(float));
@@ -1336,7 +1989,8 @@ GgmlModel* load_ggml_model(
     // Check if chat special tokens have distinct embeddings
     // If tokens 151644 (<|im_start|>) and 151645 (<|im_end|>) have identical embeddings,
     // this is likely a base model without properly trained chat tokens
-    if (model->tensors.tok_embd && model->tensors.tok_embd->buffer) {
+    if (model->hparams.architecture != "gpt_oss" &&
+        model->tensors.tok_embd && model->tensors.tok_embd->buffer) {
         const size_t n_embd = model->hparams.n_embd;
         const size_t emb_byte_size = n_embd * sizeof(float);
 

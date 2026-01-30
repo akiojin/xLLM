@@ -85,7 +85,7 @@ TEST(MainTest, DISABLED_RunsWithStubRouterAndShutsDownOnFlag) {
     {
         httplib::Client cli("127.0.0.1", node_port);
         for (int i = 0; i < 50; ++i) {
-            if (auto res = cli.Get("/health")) {
+            if (auto res = cli.Get("/api/health")) {
                 if (res->status == 200) break;
             }
             std::this_thread::sleep_for(50ms);
