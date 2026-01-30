@@ -25,6 +25,7 @@
 #include <cctype>
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -155,9 +156,20 @@ static enum ggml_type stcpp_moe_weight_type(stcpp_backend_type backend_type) {
         if (value == "mxfp4") return GGML_TYPE_MXFP4;
         if (value == "q4_0" || value == "q4") return GGML_TYPE_Q4_0;
         if (value == "f16") return GGML_TYPE_F16;
+        if (value == "bf16") return GGML_TYPE_BF16;
     }
 
-    return stcpp_disable_mxfp4(backend_type) ? GGML_TYPE_Q4_0 : GGML_TYPE_MXFP4;
+    if (stcpp_disable_mxfp4(backend_type)) {
+#ifdef STCPP_USE_METAL
+        if (backend_type == STCPP_BACKEND_METAL) {
+            // Metal backend can produce NaNs with Q4_0 + mul_mat_id in MoE; prefer BF16.
+            return GGML_TYPE_BF16;
+        }
+#endif
+        return GGML_TYPE_Q4_0;
+    }
+
+    return GGML_TYPE_MXFP4;
 }
 
 static bool stcpp_gate_up_interleaved() {
@@ -266,6 +278,44 @@ static bool stcpp_convert_mxfp4_to_f16(
     return true;
 }
 
+static bool stcpp_convert_mxfp4_to_bf16(
+    const std::vector<uint8_t>& packed,
+    int64_t n_rows,
+    int64_t n_cols,
+    std::vector<ggml_bf16_t>& out,
+    std::string& error
+) {
+    if (n_rows <= 0 || n_cols <= 0) {
+        error = "mxfp4->bf16 conversion invalid shape";
+        return false;
+    }
+
+    if (n_cols % QK_MXFP4 != 0) {
+        error = "mxfp4->bf16 conversion requires column count divisible by 32";
+        return false;
+    }
+
+    const size_t src_row_size = ggml_row_size(GGML_TYPE_MXFP4, n_cols);
+    const size_t expected_src = src_row_size * static_cast<size_t>(n_rows);
+    if (packed.size() != expected_src) {
+        error = "mxfp4->bf16 conversion packed size mismatch";
+        return false;
+    }
+
+    out.resize(static_cast<size_t>(n_rows) * static_cast<size_t>(n_cols));
+
+    std::vector<float> row_f32(static_cast<size_t>(n_cols));
+    for (int64_t r = 0; r < n_rows; ++r) {
+        const auto* src = reinterpret_cast<const block_mxfp4*>(packed.data() + r * src_row_size);
+        dequantize_row_mxfp4(src, row_f32.data(), n_cols);
+
+        ggml_bf16_t* dst = out.data() + r * n_cols;
+        ggml_fp32_to_bf16_row(row_f32.data(), dst, static_cast<int>(n_cols));
+    }
+
+    return true;
+}
+
 static inline void stcpp_transform_mxfp4_block(const uint8_t* in, uint8_t* out) {
     // Mirrors llama.cpp convert_hf_to_gguf.py transform_nibble_layout().
     for (int i = 0; i < 8; ++i) {
@@ -292,6 +342,61 @@ static bool stcpp_mxfp4_transform_enabled() {
         }
     }
     return true;
+}
+
+struct Mxfp4ScaleClamp {
+    bool enabled = false;
+    uint8_t min = 0;
+    uint8_t max = 255;
+};
+
+static Mxfp4ScaleClamp stcpp_get_mxfp4_scale_clamp(const uint8_t* scales, size_t scales_size) {
+    static std::unordered_map<const uint8_t*, Mxfp4ScaleClamp> cache;
+
+    auto it = cache.find(scales);
+    if (it != cache.end()) {
+        return it->second;
+    }
+
+    Mxfp4ScaleClamp clamp;
+    if (!scales || scales_size == 0) {
+        cache.emplace(scales, clamp);
+        return clamp;
+    }
+
+    uint32_t hist[256] = {};
+    for (size_t i = 0; i < scales_size; ++i) {
+        hist[scales[i]]++;
+    }
+
+    size_t total = scales_size;
+    size_t cumulative = 0;
+    uint8_t median = 0;
+    for (int v = 0; v < 256; ++v) {
+        cumulative += hist[v];
+        if (cumulative * 2 >= total) {
+            median = static_cast<uint8_t>(v);
+            break;
+        }
+    }
+
+    const int clamp_radius = 12;
+    int min_v = std::max(0, static_cast<int>(median) - clamp_radius);
+    int max_v = std::min(252, static_cast<int>(median) + clamp_radius);
+
+    size_t in_range = 0;
+    for (int v = min_v; v <= max_v; ++v) {
+        in_range += hist[v];
+    }
+    const double frac = total > 0 ? static_cast<double>(in_range) / static_cast<double>(total) : 1.0;
+    if (frac < 0.90) {
+        clamp.enabled = true;
+        clamp.min = static_cast<uint8_t>(min_v);
+        clamp.max = static_cast<uint8_t>(max_v);
+    }
+
+    cache.emplace(scales, clamp);
+    return clamp;
 }
 
 bool pack_mxfp4_blocks_to_ggml(
@@ -368,6 +473,14 @@ bool pack_mxfp4_blocks_to_ggml(
     const size_t total_rows = static_cast<size_t>(n_expert) * static_cast<size_t>(row_count);
     out.assign(row_size * total_rows, 0);
     static bool stcpp_mxfp4_block_logged = false;
+    static bool stcpp_mxfp4_clamp_logged = false;
+    const Mxfp4ScaleClamp scale_clamp = stcpp_get_mxfp4_scale_clamp(scales, scales_size);
+    if (scale_clamp.enabled && !stcpp_mxfp4_clamp_logged) {
+        stcpp_mxfp4_clamp_logged = true;
+        fprintf(stderr, "[WARN] mxfp4 scales look out-of-range; clamping to [%u, %u]\n",
+                scale_clamp.min, scale_clamp.max);
+        fflush(stderr);
+    }
 
     const size_t max_idx = expected_scales; // number of scale entries == number of blocks
 
@@ -383,7 +496,16 @@ bool pack_mxfp4_blocks_to_ggml(
                     error = "mxfp4 index out of bounds";
                     return false;
                 }
-                const uint8_t scale = scales[idx];
+                uint8_t scale = scales[idx];
+                if (scale_clamp.enabled) {
+                    if (scale < scale_clamp.min) {
+                        scale = scale_clamp.min;
+                    } else if (scale > scale_clamp.max) {
+                        scale = scale_clamp.max;
+                    }
+                } else if (scale > 252) {
+                    scale = 252;
+                }
                 const uint8_t* block = blocks + idx * block_bytes;
                 const size_t dst_off = static_cast<size_t>(b) * 17;
                 uint8_t transformed[16];
@@ -1275,7 +1397,12 @@ GgmlModel* load_ggml_model(
 
     const enum ggml_type moe_wtype = stcpp_moe_weight_type(backend_type);
     if (model->hparams.use_moe && moe_wtype != GGML_TYPE_MXFP4) {
-        const char* type_name = (moe_wtype == GGML_TYPE_F16) ? "F16" : "Q4_0";
+        const char* type_name = "Q4_0";
+        if (moe_wtype == GGML_TYPE_F16) {
+            type_name = "F16";
+        } else if (moe_wtype == GGML_TYPE_BF16) {
+            type_name = "BF16";
+        }
         fprintf(stderr, "[DEBUG] load_ggml_model: MXFP4 disabled (fallback to %s)\n", type_name);
         fflush(stderr);
     }
@@ -1766,6 +1893,19 @@ GgmlModel* load_ggml_model(
                     return nullptr;
                 }
                 ggml_backend_tensor_set(layer.moe_gate_exps, q4.data(), 0, q4_bytes);
+            } else if (moe_wtype == GGML_TYPE_BF16) {
+                std::vector<ggml_bf16_t> bf16;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
+                if (!stcpp_convert_mxfp4_to_bf16(packed, n_rows, hparams.n_embd, bf16, error)) {
+                    error = "gpt-oss gate bf16 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t bf16_bytes = bf16.size() * sizeof(ggml_bf16_t);
+                if (bf16_bytes != ggml_nbytes(layer.moe_gate_exps)) {
+                    error = "gpt-oss gate bf16 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_gate_exps, bf16.data(), 0, bf16_bytes);
             } else if (moe_wtype == GGML_TYPE_F16) {
                 std::vector<ggml_fp16_t> f16;
                 const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
@@ -1836,6 +1976,19 @@ GgmlModel* load_ggml_model(
                     return nullptr;
                 }
                 ggml_backend_tensor_set(layer.moe_up_exps, q4.data(), 0, q4_bytes);
+            } else if (moe_wtype == GGML_TYPE_BF16) {
+                std::vector<ggml_bf16_t> bf16;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
+                if (!stcpp_convert_mxfp4_to_bf16(packed, n_rows, hparams.n_embd, bf16, error)) {
+                    error = "gpt-oss up bf16 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t bf16_bytes = bf16.size() * sizeof(ggml_bf16_t);
+                if (bf16_bytes != ggml_nbytes(layer.moe_up_exps)) {
+                    error = "gpt-oss up bf16 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_up_exps, bf16.data(), 0, bf16_bytes);
             } else if (moe_wtype == GGML_TYPE_F16) {
                 std::vector<ggml_fp16_t> f16;
                 const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
@@ -1882,6 +2035,19 @@ GgmlModel* load_ggml_model(
                     return nullptr;
                 }
                 ggml_backend_tensor_set(layer.moe_down_exps, q4.data(), 0, q4_bytes);
+            } else if (moe_wtype == GGML_TYPE_BF16) {
+                std::vector<ggml_bf16_t> bf16;
+                const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_embd;
+                if (!stcpp_convert_mxfp4_to_bf16(packed, n_rows, hparams.n_ff, bf16, error)) {
+                    error = "gpt-oss down bf16 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
+                    return nullptr;
+                }
+                const size_t bf16_bytes = bf16.size() * sizeof(ggml_bf16_t);
+                if (bf16_bytes != ggml_nbytes(layer.moe_down_exps)) {
+                    error = "gpt-oss down bf16 size mismatch for layer " + std::to_string(layer_idx);
+                    return nullptr;
+                }
+                ggml_backend_tensor_set(layer.moe_down_exps, bf16.data(), 0, bf16_bytes);
             } else if (moe_wtype == GGML_TYPE_F16) {
                 std::vector<ggml_fp16_t> f16;
                 const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_embd;

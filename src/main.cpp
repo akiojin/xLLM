@@ -655,6 +655,43 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         });
         spdlog::info("Ollama-compatible endpoint registered: POST /api/show");
 
+        // Ollama-compatible API: POST /api/delete - delete a local model
+        server.getServer().Post("/api/delete", [&model_storage, &registry, &engine](const httplib::Request& req, httplib::Response& res) {
+            auto body = nlohmann::json::parse(req.body, nullptr, false);
+            if (body.is_discarded() || !body.contains("name") || !body["name"].is_string()) {
+                res.status = 400;
+                res.set_content(R"({"error":"name required"})", "application/json");
+                return;
+            }
+
+            const std::string model_name = body["name"].get<std::string>();
+            if (xllm::cli::OllamaCompat::hasOllamaPrefix(model_name)) {
+                res.status = 403;
+                res.set_content(R"({"error":"model is read-only"})", "application/json");
+                return;
+            }
+
+            if (!model_storage.deleteModel(model_name)) {
+                res.status = 500;
+                res.set_content(R"({"error":"delete failed"})", "application/json");
+                return;
+            }
+
+            auto local_descriptors = model_storage.listAvailableDescriptors();
+            std::vector<std::string> local_model_names;
+            local_model_names.reserve(local_descriptors.size());
+            for (const auto& desc : local_descriptors) {
+                if (!engine.isModelSupported(desc)) {
+                    continue;
+                }
+                local_model_names.push_back(desc.name);
+            }
+            registry.setModels(local_model_names);
+
+            res.set_content(R"({"status":"ok"})", "application/json");
+        });
+        spdlog::info("Ollama-compatible endpoint registered: POST /api/delete");
+
         std::cout << "Starting HTTP server on port " << node_port << "..." << std::endl;
         server.start();
         server_started = true;
