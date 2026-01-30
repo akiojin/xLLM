@@ -335,7 +335,7 @@ std::string build_gpt_oss_prompt(const std::vector<ChatMessage>& messages) {
         oss << "<|start|>" << msg.role << "<|message|>" << msg.content << "<|end|>\n";
     }
 
-    oss << "<|start|>assistant";
+    oss << "<|start|>assistant<|channel|>final<|message|>";
     return oss.str();
 }
 
