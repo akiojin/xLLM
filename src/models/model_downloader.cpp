@@ -943,17 +943,22 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             if (is_gguf_filename(name)) ggufs.push_back(name);
             if (is_safetensors_filename(name)) safetensors.push_back(name);
         }
-        if (!ggufs.empty() && !safetensors.empty()) {
-            set_error("Multiple artifact types found; specify filename");
-            return "";
-        }
         if (!ggufs.empty()) {
             if (ggufs.size() == 1) {
                 format = Format::Gguf;
                 selection = ggufs.front();
             } else {
-                set_error("Multiple GGUF files found; specify filename");
-                return "";
+                auto it = std::find_if(ggufs.begin(), ggufs.end(), [](const std::string& name) {
+                    return ends_with_case_insensitive(name, "/model.gguf") ||
+                           ends_with_case_insensitive(name, "model.gguf");
+                });
+                if (it != ggufs.end()) {
+                    format = Format::Gguf;
+                    selection = *it;
+                } else {
+                    set_error("Multiple GGUF files found; specify filename");
+                    return "";
+                }
             }
         } else if (!safetensors.empty()) {
             if (!require_safetensors_metadata_files(siblings)) {
