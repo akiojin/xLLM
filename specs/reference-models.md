@@ -5,6 +5,7 @@ across xLLM specs. Update this list whenever required model families change.
 
 Testing rule:
 - Model downloads for tests MUST use `xllm pull` (do not use direct downloads or custom scripts).
+- After each test, delete the model with `xllm rm <MODEL>` to avoid leaving large artifacts.
 
 ## Text (safetensors)
 
