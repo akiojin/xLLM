@@ -118,71 +118,98 @@ CliResponse<nlohmann::json> CliClient::listRunningModels() {
 }
 
 CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCallback progress_cb) {
-    httplib::Client client(host_, port_);
-    client.set_connection_timeout(10, 0);
-    client.set_read_timeout(0, 0);  // No timeout for long downloads
-
-    nlohmann::json body;
-    body["name"] = model_name;
-    body["stream"] = true;
-
     CliResponse<void> response;
 
-    // Use Post with ContentReceiver for streaming progress
-    auto res = client.Post(
-        "/api/models/pull",
-        httplib::Headers{},
-        body.dump(),
-        "application/json",
-        [&progress_cb](const char* data, size_t len) -> bool {
-            if (!progress_cb) return true;
+    // Prefer streaming (progress) when available.
+    {
+        httplib::Client client(host_, port_);
+        client.set_connection_timeout(10, 0);
+        client.set_read_timeout(86400, 0);  // Allow long downloads (24h)
 
-            std::string chunk(data, len);
+        nlohmann::json body;
+        body["name"] = model_name;
+        body["stream"] = true;
 
-            // Parse NDJSON progress updates
-            std::istringstream stream(chunk);
-            std::string line;
-            while (std::getline(stream, line)) {
-                if (line.empty()) continue;
-                try {
-                    auto json = nlohmann::json::parse(line);
-                    uint64_t completed = json.value("completed", static_cast<uint64_t>(0));
-                    uint64_t total = json.value("total", static_cast<uint64_t>(0));
+        auto res = client.Post(
+            "/api/models/pull",
+            httplib::Headers{},
+            body.dump(),
+            "application/json",
+            [&progress_cb](const char* data, size_t len) -> bool {
+                if (!progress_cb) return true;
 
-                    // Calculate speed (approximation)
-                    double speed = 0.0;
-                    if (json.contains("speed")) {
-                        speed = json["speed"].get<double>();
+                std::string chunk(data, len);
+
+                // Parse NDJSON progress updates
+                std::istringstream stream(chunk);
+                std::string line;
+                while (std::getline(stream, line)) {
+                    if (line.empty()) continue;
+                    try {
+                        auto json = nlohmann::json::parse(line);
+                        uint64_t completed = json.value("completed", static_cast<uint64_t>(0));
+                        uint64_t total = json.value("total", static_cast<uint64_t>(0));
+
+                        // Calculate speed (approximation)
+                        double speed = 0.0;
+                        if (json.contains("speed")) {
+                            speed = json["speed"].get<double>();
+                        }
+
+                        progress_cb(completed, total, speed);
+                    } catch (...) {
+                        // Ignore parse errors in progress stream
                     }
-
-                    progress_cb(completed, total, speed);
-                } catch (...) {
-                    // Ignore parse errors in progress stream
                 }
+                return true;
             }
-            return true;
-        }
-    );
+        );
 
-    if (!res) {
-        response.error = CliError::ConnectionError;
-        response.error_message = "Failed to connect to server";
-        return response;
+        if (res) {
+            if (res->status != 200) {
+                response.error = CliError::GeneralError;
+                try {
+                    auto json = nlohmann::json::parse(res->body);
+                    response.error_message = json.value("error", res->body);
+                } catch (...) {
+                    response.error_message = res->body;
+                }
+                return response;
+            }
+            response.error = CliError::Success;
+            return response;
+        }
     }
 
-    if (res->status != 200) {
-        response.error = CliError::GeneralError;
-        try {
-            auto json = nlohmann::json::parse(res->body);
-            response.error_message = json.value("error", res->body);
-        } catch (...) {
-            response.error_message = res->body;
+    // Fallback for servers that don't stream /api/models/pull.
+    {
+        httplib::Client client(host_, port_);
+        client.set_connection_timeout(10, 0);
+        client.set_read_timeout(86400, 0);  // Allow long downloads (24h)
+
+        nlohmann::json body;
+        body["name"] = model_name;
+        body["stream"] = false;
+
+        auto res = client.Post("/api/models/pull", body.dump(), "application/json");
+        if (!res) {
+            response.error = CliError::ConnectionError;
+            response.error_message = "Failed to connect to server";
+            return response;
         }
+        if (res->status != 200) {
+            response.error = CliError::GeneralError;
+            try {
+                auto json = nlohmann::json::parse(res->body);
+                response.error_message = json.value("error", res->body);
+            } catch (...) {
+                response.error_message = res->body;
+            }
+            return response;
+        }
+        response.error = CliError::Success;
         return response;
     }
-
-    response.error = CliError::Success;
-    return response;
 }
 
 CliResponse<std::string> CliClient::chat(
