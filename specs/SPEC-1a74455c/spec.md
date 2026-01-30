@@ -69,12 +69,12 @@ objectが`response`のJSONが返ることを確認できる。
 システム管理者として、xLLMがResponses APIに対応していることを
 ロードバランサーから検出できるようにしたい。
 
-**独立テスト**: /healthのレスポンスに
+**独立テスト**: /api/healthのレスポンスに
 `supports_responses_api: true`が含まれることを確認できる。
 
 **受け入れシナリオ**:
 
-1. **前提** xLLMが起動している、**実行** /healthを呼び出す、
+1. **前提** xLLMが起動している、**実行** /api/healthを呼び出す、
    **結果** JSONにsupports_responses_apiが含まれる
 
 ## 機能要件
@@ -84,7 +84,7 @@ objectが`response`のJSONが返ることを確認できる。
 - **FR-003**: `input`が配列の場合はメッセージ配列として扱う
 - **FR-004**: `stream=true`のときSSEでイベントを返す
 - **FR-005**: `input`または`model`が欠ける場合は400エラーを返す
-- **FR-006**: /healthに`supports_responses_api: true`を含める
+- **FR-006**: /api/healthに`supports_responses_api: true`を含める
 
 ## 非対象
 
@@ -96,4 +96,4 @@ objectが`response`のJSONが返ることを確認できる。
 
 - /v1/responsesが基本リクエストとストリーミングで動作する
 - contract / integration テストが追加される
-- /healthにsupports_responses_apiが含まれる
+- /api/healthにsupports_responses_apiが含まれる

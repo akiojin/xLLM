@@ -8,7 +8,7 @@
 - xLLMのOpenAI互換エンドポイントに`/v1/responses`を追加する
 - 入力は文字列またはメッセージ配列を受け付ける
 - 既存のChat Completions実装を再利用し、レスポンス形式をResponses APIに合わせる
-- /healthのレスポンスにResponses API対応フラグを追加する
+- /api/healthのレスポンスにResponses API対応フラグを追加する
 
 ## 対象コンポーネント
 
@@ -24,7 +24,7 @@
 
 - Contractテスト: /v1/responsesの基本応答、ストリーミング、入力必須
 - Integrationテスト: /v1/responsesのレスポンスとusage確認
-- /healthにsupports_responses_apiが含まれることのテスト
+- /api/healthにsupports_responses_apiが含まれることのテスト
 
 ### Phase 2: 実装
 
@@ -32,7 +32,7 @@
 - `POST /v1/responses`のハンドラ追加
 - usage計算（入力/出力トークン概算）
 - ストリーミングSSEのイベント整形
-- /healthにsupports_responses_apiを追加
+- /api/healthにsupports_responses_apiを追加
 
 ### Phase 3: 仕上げ
 
@@ -43,5 +43,5 @@
 
 - /v1/responsesが基本リクエストとstream=trueで動作する
 - 400エラーが正しく返る
-- /healthでsupports_responses_apiが取得できる
+- /api/healthでsupports_responses_apiが取得できる
 - 追加テストがパスする

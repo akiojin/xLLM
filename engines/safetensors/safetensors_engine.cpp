@@ -8,8 +8,12 @@
 #include "safetensors_engine.h"
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <sstream>
 
@@ -106,6 +110,233 @@ void apply_kv_quantization(const std::string& quantization, stcpp_context_params
         params.kv_cache_quant = true;
         params.kv_quant_type = STCPP_KV_QUANT_FP8;
     }
+}
+
+std::string normalize_arch_key(std::string value) {
+    std::string lower;
+    lower.reserve(value.size());
+    for (unsigned char c : value) {
+        if (std::isalnum(c)) {
+            lower.push_back(static_cast<char>(std::tolower(c)));
+        }
+    }
+    return lower;
+}
+
+bool is_gpt_oss_arch(const std::string& value) {
+    std::string norm = normalize_arch_key(value);
+    return norm.find("gptoss") != std::string::npos;
+}
+
+bool is_gpt_oss_descriptor(const ModelDescriptor& descriptor) {
+    for (const auto& arch : descriptor.architectures) {
+        if (is_gpt_oss_arch(arch)) {
+            return true;
+        }
+    }
+    if (!descriptor.name.empty()) {
+        if (normalize_arch_key(descriptor.name).find("gptoss") != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_gpt_oss_config(const std::string& model_dir) {
+    const auto config_path = std::filesystem::path(model_dir) / "config.json";
+    if (!std::filesystem::exists(config_path)) {
+        return false;
+    }
+    try {
+        std::ifstream ifs(config_path);
+        nlohmann::json j;
+        ifs >> j;
+        if (j.contains("model_type") && j["model_type"].is_string()) {
+            if (is_gpt_oss_arch(j["model_type"].get<std::string>())) {
+                return true;
+            }
+        }
+        if (j.contains("architectures") && j["architectures"].is_array()) {
+            for (const auto& item : j["architectures"]) {
+                if (item.is_string() && is_gpt_oss_arch(item.get<std::string>())) {
+                    return true;
+                }
+            }
+        }
+    } catch (...) {
+        return false;
+    }
+    return false;
+}
+
+bool is_gpt_oss_model(const ModelDescriptor& descriptor, const std::string& model_dir) {
+    if (is_gpt_oss_descriptor(descriptor)) {
+        return true;
+    }
+    return is_gpt_oss_config(model_dir);
+}
+
+std::string strip_control_tokens(std::string text) {
+    const std::vector<std::string> tokens = {
+        "<|start|>", "<|end|>", "<|message|>", "<|channel|>",
+        "<|return|>", "<|constrain|>",
+        "<|im_start|>", "<|im_end|>",
+        "<|startoftext|>", "<|endoftext|>",
+        "<|eot_id|>", "</s>", "<s>"
+    };
+    for (const auto& t : tokens) {
+        size_t pos = 0;
+        while ((pos = text.find(t, pos)) != std::string::npos) {
+            text.erase(pos, t.size());
+        }
+    }
+    const auto start = text.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) {
+        return "";
+    }
+    const auto end = text.find_last_not_of(" \t\n\r");
+    return text.substr(start, end - start + 1);
+}
+
+std::string harmony_current_date() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[11] = {0};
+    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm) == 0) {
+        return "1970-01-01";
+    }
+    return std::string(buf);
+}
+
+std::string build_harmony_system_message() {
+    std::ostringstream oss;
+    oss << "<|start|>system<|message|>"
+        << "You are ChatGPT, a large language model trained by OpenAI.\n"
+        << "Knowledge cutoff: 2024-06\n"
+        << "Current date: " << harmony_current_date() << "\n\n"
+        << "Reasoning: low\n\n"
+        << "# Valid channels: analysis, commentary, final. Channel must be included for every message.\n"
+        << "<|end|>\n";
+    return oss.str();
+}
+
+std::string extract_gpt_oss_final(const std::string& output) {
+    const std::string end_token = "<|return|>";
+    const auto end_pos = output.find(end_token);
+    if (end_pos == std::string::npos) {
+        return strip_control_tokens(output);
+    }
+    return strip_control_tokens(output.substr(0, end_pos));
+}
+
+std::string extract_gpt_oss_final_channel(const std::string& output) {
+    const std::string chan_token = "<|channel|>final";
+    const std::string msg_token = "<|message|>";
+    size_t chan_pos = output.rfind(chan_token);
+    if (chan_pos == std::string::npos) {
+        return "";
+    }
+    size_t msg_pos = output.find(msg_token, chan_pos);
+    if (msg_pos == std::string::npos) {
+        return "";
+    }
+    msg_pos += msg_token.size();
+    size_t end_pos = output.find("<|end|>", msg_pos);
+    size_t return_pos = output.find("<|return|>", msg_pos);
+    size_t stop = output.size();
+    if (end_pos != std::string::npos) {
+        stop = end_pos;
+    }
+    if (return_pos != std::string::npos) {
+        stop = std::min(stop, return_pos);
+    }
+    if (stop < msg_pos) {
+        return "";
+    }
+    return strip_control_tokens(output.substr(msg_pos, stop - msg_pos));
+}
+
+std::string clean_gpt_oss_output(const std::string& output) {
+    const auto final_channel = extract_gpt_oss_final_channel(output);
+    if (!final_channel.empty()) {
+        return final_channel;
+    }
+    if (output.find("<|return|>") != std::string::npos) {
+        return extract_gpt_oss_final(output);
+    }
+    if (output.find("<|end|>") != std::string::npos) {
+        const auto end_pos = output.find("<|end|>");
+        return strip_control_tokens(output.substr(0, end_pos));
+    }
+    std::string result = strip_control_tokens(output);
+    if (result.empty()) {
+        return result;
+    }
+
+    auto is_tag_boundary = [](char c) {
+        return std::isspace(static_cast<unsigned char>(c)) || c == ':' || c == '-' || c == '|';
+    };
+
+    auto strip_leading_tag = [&](const std::string& tag) {
+        if (result.rfind(tag, 0) != 0) return;
+        if (result.size() == tag.size()) {
+            result.clear();
+            return;
+        }
+        char next = result[tag.size()];
+        if (is_tag_boundary(next) || std::isupper(static_cast<unsigned char>(next))) {
+            size_t pos = tag.size();
+            while (pos < result.size() && is_tag_boundary(result[pos])) {
+                ++pos;
+            }
+            result.erase(0, pos);
+        }
+    };
+
+    strip_leading_tag("analysis");
+    strip_leading_tag("final");
+    strip_leading_tag("assistant");
+
+    return result;
+}
+
+std::string build_gpt_oss_prompt(const std::vector<ChatMessage>& messages) {
+    std::ostringstream oss;
+    oss << build_harmony_system_message();
+
+    std::string developer_instructions;
+    for (const auto& msg : messages) {
+        if (msg.role == "system") {
+            if (!developer_instructions.empty()) {
+                developer_instructions.append("\n\n");
+            }
+            developer_instructions.append(msg.content);
+        }
+    }
+    if (!developer_instructions.empty()) {
+        oss << "<|start|>developer<|message|># Instructions\n\n"
+            << developer_instructions << "\n<|end|>\n";
+    }
+
+    for (const auto& msg : messages) {
+        if (msg.role == "system") {
+            continue;
+        }
+        if (msg.role == "assistant") {
+            oss << "<|start|>assistant<|channel|>final<|message|>" << msg.content << "<|end|>\n";
+            continue;
+        }
+        oss << "<|start|>" << msg.role << "<|message|>" << msg.content << "<|end|>\n";
+    }
+
+    oss << "<|start|>assistant";
+    return oss.str();
 }
 
 }  // namespace
@@ -233,6 +464,7 @@ ModelLoadResult SafetensorsEngine::loadModel(const ModelDescriptor& descriptor) 
     loaded->tokenizer = tokenizer;
     loaded->max_context = static_cast<size_t>(stcpp_model_max_context(model));
     loaded->has_trained_chat_tokens = stcpp_model_has_trained_chat_tokens(model);
+    loaded->is_gpt_oss = is_gpt_oss_model(descriptor, model_dir);
 
     // Get VRAM usage
     stcpp_vram_usage vram = stcpp_context_vram_usage(ctx);
@@ -264,6 +496,10 @@ SafetensorsEngine::LoadedModel* SafetensorsEngine::getOrLoadModel(
 std::string SafetensorsEngine::buildChatPrompt(
     const std::vector<ChatMessage>& messages,
     const LoadedModel* loaded) const {
+    if (loaded->is_gpt_oss) {
+        return build_gpt_oss_prompt(messages);
+    }
+
     // For base models (no trained chat tokens), use simple prompt format
     // Chat templates use special tokens that have identical embeddings in base models,
     // causing garbage output
@@ -351,7 +587,11 @@ std::string SafetensorsEngine::generateChat(const std::vector<ChatMessage>& mess
     fprintf(stderr, "[DEBUG] SafetensorsEngine::generateChat: prompt built (len=%zu), calling generateCompletion\n", prompt.length());
     fflush(stderr);
 
-    return generateCompletion(prompt, descriptor, params);
+    std::string output = generateCompletion(prompt, descriptor, params);
+    if (loaded->is_gpt_oss && !output.empty()) {
+        output = clean_gpt_oss_output(output);
+    }
+    return output;
 }
 
 std::string SafetensorsEngine::generateCompletion(const std::string& prompt,

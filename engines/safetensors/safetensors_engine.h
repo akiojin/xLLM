@@ -80,6 +80,7 @@ private:
         size_t max_context{0};
         uint64_t vram_bytes{0};
         bool has_trained_chat_tokens{true};  // False for base models (not instruct)
+        bool is_gpt_oss{false};
     };
 
     /**

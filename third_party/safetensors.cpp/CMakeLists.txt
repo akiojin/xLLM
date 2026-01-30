@@ -89,6 +89,11 @@ add_library(safetensors_cpp STATIC ${STCPP_SOURCES})
 target_include_directories(safetensors_cpp PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+if(NOT STCPP_STANDALONE)
+    target_include_directories(safetensors_cpp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../llama.cpp/src
+    )
+endif()
 target_link_libraries(safetensors_cpp
     PUBLIC
         ${STCPP_GGML_TARGET}

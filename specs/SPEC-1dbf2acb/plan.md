@@ -97,7 +97,7 @@ xLLMの全機能を統合的に実装するための計画。
 ### Phase 5: 運用機能
 
 1. **Prometheus Metrics**
-   - /metrics エンドポイント
+   - /api/metrics エンドポイント
    - トークンスループット
    - VRAM使用率
 

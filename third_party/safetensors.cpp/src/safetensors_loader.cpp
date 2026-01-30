@@ -80,42 +80,89 @@ std::string parse_string(const char*& p, const char* end) {
     ++p;  // skip opening quote
 
     std::string result;
-    const char* segment_start = p;
-    while (p < end) {
-        const char* next_quote = static_cast<const char*>(memchr(p, '"', end - p));
-        const char* next_escape = static_cast<const char*>(memchr(p, '\\', end - p));
-        const char* next = nullptr;
-        if (!next_quote && !next_escape) {
-            break;
-        } else if (!next_quote) {
-            next = next_escape;
-        } else if (!next_escape) {
-            next = next_quote;
-        } else {
-            next = (next_escape < next_quote) ? next_escape : next_quote;
-        }
 
-        if (next == next_quote) {
-            result.append(segment_start, static_cast<size_t>(next_quote - segment_start));
-            p = next_quote + 1;
+    auto append_utf8 = [&](uint32_t codepoint) {
+        if (codepoint <= 0x7F) {
+            result.push_back(static_cast<char>(codepoint));
+        } else if (codepoint <= 0x7FF) {
+            result.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
+            result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        } else if (codepoint <= 0xFFFF) {
+            result.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
+            result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+            result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        } else if (codepoint <= 0x10FFFF) {
+            result.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
+            result.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+            result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+            result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        }
+    };
+
+    auto parse_hex4 = [&](const char* ptr, uint32_t& out) -> bool {
+        if (ptr + 4 > end) return false;
+        uint32_t value = 0;
+        for (int i = 0; i < 4; ++i) {
+            const char c = ptr[i];
+            value <<= 4;
+            if (c >= '0' && c <= '9') {
+                value |= static_cast<uint32_t>(c - '0');
+            } else if (c >= 'a' && c <= 'f') {
+                value |= static_cast<uint32_t>(10 + (c - 'a'));
+            } else if (c >= 'A' && c <= 'F') {
+                value |= static_cast<uint32_t>(10 + (c - 'A'));
+            } else {
+                return false;
+            }
+        }
+        out = value;
+        return true;
+    };
+
+    while (p < end) {
+        const char c = *p++;
+        if (c == '"') {
             return result;
         }
-
-        result.append(segment_start, static_cast<size_t>(next_escape - segment_start));
-        p = next_escape + 1;
+        if (c != '\\') {
+            result.push_back(c);
+            continue;
+        }
         if (p >= end) {
             return result;
         }
-        switch (*p) {
+        const char esc = *p++;
+        switch (esc) {
             case '"': result.push_back('"'); break;
             case '\\': result.push_back('\\'); break;
+            case '/': result.push_back('/'); break;
+            case 'b': result.push_back('\b'); break;
+            case 'f': result.push_back('\f'); break;
             case 'n': result.push_back('\n'); break;
             case 't': result.push_back('\t'); break;
             case 'r': result.push_back('\r'); break;
-            default: result.push_back(*p); break;
+            case 'u': {
+                uint32_t codepoint = 0;
+                if (!parse_hex4(p, codepoint)) {
+                    result.push_back('u');
+                    break;
+                }
+                p += 4;
+                if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
+                    if (p + 6 <= end && p[0] == '\\' && p[1] == 'u') {
+                        uint32_t low = 0;
+                        if (parse_hex4(p + 2, low) && low >= 0xDC00 && low <= 0xDFFF) {
+                            codepoint = 0x10000 + (((codepoint - 0xD800) << 10) | (low - 0xDC00));
+                            p += 6;
+                        }
+                    }
+                }
+                append_utf8(codepoint);
+            } break;
+            default:
+                result.push_back(esc);
+                break;
         }
-        ++p;
-        segment_start = p;
     }
     p = end;
     return result;
@@ -210,6 +257,7 @@ bool parse_safetensors_header(
 
     header.header_size = header_size;
     header.data_offset = ST_HEADER_SIZE_LEN + header_size;
+    const size_t data_section_size = file_size - header.data_offset;
 
     // Read header JSON
     std::vector<char> header_buf(header_size + 1);
@@ -305,6 +353,14 @@ bool parse_safetensors_header(
                         if (p < end && *p == ',') ++p;
                         json_parser::skip_ws(p, end);
                         size_t end_offset = json_parser::parse_int(p, end);
+                        if (end_offset < begin_offset) {
+                            error = "Invalid data_offsets (end < begin) for tensor: " + info.name;
+                            return false;
+                        }
+                        if (end_offset > data_section_size) {
+                            error = "Tensor data exceeds file size: " + path + " tensor=" + info.name;
+                            return false;
+                        }
                         info.data_offset = begin_offset;
                         info.data_size = end_offset - begin_offset;
                         json_parser::skip_ws(p, end);

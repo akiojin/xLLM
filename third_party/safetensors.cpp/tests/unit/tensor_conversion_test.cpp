@@ -189,9 +189,12 @@ TEST_F(TensorConversionTest, PackMxfp4BlocksToGgml) {
     ASSERT_TRUE(stcpp::pack_mxfp4_blocks_to_ggml(
         blocks,
         scales,
+        sizeof(blocks),
+        sizeof(scales),
         blocks_shape,
         scales_shape,
         0,
+        1,
         1,
         32,
         packed,

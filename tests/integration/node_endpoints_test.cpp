@@ -13,6 +13,7 @@
 using namespace xllm;
 
 TEST(NodeEndpointsTest, PullAndHealth) {
+    xllm::set_ready(true);
     ModelRegistry registry;
     InferenceEngine engine;
     NodeConfig config;
@@ -22,11 +23,11 @@ TEST(NodeEndpointsTest, PullAndHealth) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18088);
-    auto health = cli.Get("/health");
+    auto health = cli.Get("/api/health");
     ASSERT_TRUE(health);
     EXPECT_EQ(health->status, 200);
     auto body = nlohmann::json::parse(health->body);
-    EXPECT_EQ(body["status"], "ok");
+    EXPECT_EQ(body["status"], "online");
     EXPECT_TRUE(body["supports_responses_api"].get<bool>());
 
     server.stop();
@@ -42,11 +43,11 @@ TEST(NodeEndpointsTest, LogLevelGetAndSet) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18087);
-    auto get1 = cli.Get("/log/level");
+    auto get1 = cli.Get("/api/log/level");
     ASSERT_TRUE(get1);
     EXPECT_EQ(get1->status, 200);
 
-    auto set = cli.Post("/log/level", R"({"level":"debug"})", "application/json");
+    auto set = cli.Post("/api/log/level", R"({"level":"debug"})", "application/json");
     ASSERT_TRUE(set);
     EXPECT_EQ(set->status, 200);
     EXPECT_NE(set->body.find("debug"), std::string::npos);
@@ -65,12 +66,12 @@ TEST(NodeEndpointsTest, StartupProbeReflectsReadyFlag) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18091);
-    auto not_ready = cli.Get("/startup");
+    auto not_ready = cli.Get("/api/startup");
     ASSERT_TRUE(not_ready);
     EXPECT_EQ(not_ready->status, 503);
 
     xllm::set_ready(true);
-    auto ready = cli.Get("/startup");
+    auto ready = cli.Get("/api/startup");
     ASSERT_TRUE(ready);
     EXPECT_EQ(ready->status, 200);
 
@@ -88,7 +89,7 @@ TEST(NodeEndpointsTest, MetricsReportsUptimeAndCounts) {
 
     httplib::Client cli("127.0.0.1", 18089);
 
-    auto metrics = cli.Get("/metrics");
+    auto metrics = cli.Get("/api/metrics");
     ASSERT_TRUE(metrics);
     EXPECT_EQ(metrics->status, 200);
     EXPECT_EQ(metrics->get_header_value("Content-Type"), "application/json");
@@ -108,14 +109,14 @@ TEST(HttpServerTest, RequestIdGeneratedAndEchoed) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18092);
-    auto resp = cli.Get("/health");
+    auto resp = cli.Get("/api/health");
     ASSERT_TRUE(resp);
     auto id = resp->get_header_value("X-Request-Id");
     EXPECT_FALSE(id.empty());
 
     // Custom request id is echoed
     httplib::Headers h{{"X-Request-Id", "custom-id"}};
-    auto resp2 = cli.Get("/health", h);
+    auto resp2 = cli.Get("/api/health", h);
     ASSERT_TRUE(resp2);
     EXPECT_EQ(resp2->get_header_value("X-Request-Id"), "custom-id");
 
@@ -134,7 +135,7 @@ TEST(HttpServerTest, TraceparentPropagatesTraceId) {
     httplib::Client cli("127.0.0.1", 18093);
     std::string incoming = "00-11111111111111111111111111111111-2222222222222222-01";
     httplib::Headers h{{"traceparent", incoming}};
-    auto resp = cli.Get("/health", h);
+    auto resp = cli.Get("/api/health", h);
     ASSERT_TRUE(resp);
     auto tp = resp->get_header_value("traceparent");
     EXPECT_FALSE(tp.empty());
@@ -143,8 +144,8 @@ TEST(HttpServerTest, TraceparentPropagatesTraceId) {
     server.stop();
 }
 
-// Phase 1.2: GET /v0/health endpoint test
-TEST(NodeEndpointsTest, V0HealthReturnsGpuAndLoadInfo) {
+// Phase 1.2: GET /api/health endpoint test
+TEST(NodeEndpointsTest, HealthReturnsGpuAndLoadInfo) {
     xllm::set_ready(true);
     ModelRegistry registry;
     InferenceEngine engine;
@@ -163,7 +164,7 @@ TEST(NodeEndpointsTest, V0HealthReturnsGpuAndLoadInfo) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18094);
-    auto resp = cli.Get("/v0/health");
+    auto resp = cli.Get("/api/health");
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->get_header_value("Content-Type"), "application/json");
@@ -178,7 +179,7 @@ TEST(NodeEndpointsTest, V0HealthReturnsGpuAndLoadInfo) {
     server.stop();
 }
 
-TEST(NodeEndpointsTest, V0HealthReturnsOfflineWhenNotReady) {
+TEST(NodeEndpointsTest, HealthReturnsOfflineWhenNotReady) {
     xllm::set_ready(false);
     ModelRegistry registry;
     InferenceEngine engine;
@@ -189,7 +190,7 @@ TEST(NodeEndpointsTest, V0HealthReturnsOfflineWhenNotReady) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18095);
-    auto resp = cli.Get("/v0/health");
+    auto resp = cli.Get("/api/health");
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_NE(resp->body.find("\"offline\""), std::string::npos);

@@ -7,9 +7,13 @@
 #include <fstream>
 #include <filesystem>
 #include <sstream>
+#include <array>
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <regex>
+
+#include "../../llama.cpp/src/unicode.h"
 
 namespace stcpp {
 
@@ -19,6 +23,101 @@ extern std::string parse_string(const char*& p, const char* end);
 extern int64_t parse_int(const char*& p, const char* end);
 extern void skip_value(const char*& p, const char* end);
 }  // namespace json_parser
+
+static std::string merge_pair_key(const std::string& first, const std::string& second);
+
+static std::string normalize_pretokenizer_regex(std::string regex) {
+    const std::string needle = "(?i:'s|'t|'re|'ve|'m|'ll|'d)";
+    const std::string replacement = "'([sS]|[tT]|[rR][eE]|[vV][eE]|[mM]|[lL][lL]|[dD])";
+    size_t pos = 0;
+    while ((pos = regex.find(needle, pos)) != std::string::npos) {
+        regex.replace(pos, needle.size(), replacement);
+        pos += replacement.size();
+    }
+    return regex;
+}
+
+static bool extract_pretokenizer_regex(const std::string& content, std::string& regex) {
+    const char* p = content.data();
+    const char* end = p + content.size();
+    const char* key = "\"Regex\"";
+    const char* found = std::strstr(p, key);
+    if (!found) return false;
+
+    p = found + std::strlen(key);
+    while (p < end && *p != ':') ++p;
+    if (p >= end) return false;
+    ++p;
+    json_parser::skip_ws(p, end);
+    if (p >= end || *p != '"') return false;
+
+    regex = json_parser::parse_string(p, end);
+    return !regex.empty();
+}
+
+static bool extract_config_token_id(const std::string& content, const char* key, int32_t& out) {
+    std::string needle = std::string("\"") + key + "\"";
+    const char* p = content.data();
+    const char* end = p + content.size();
+    const char* found = std::strstr(p, needle.c_str());
+    if (!found) {
+        return false;
+    }
+    p = found + needle.size();
+    while (p < end && *p != ':') ++p;
+    if (p >= end) {
+        return false;
+    }
+    ++p;
+    json_parser::skip_ws(p, end);
+    if (p >= end) {
+        return false;
+    }
+    if (*p == '[') {
+        ++p;
+        json_parser::skip_ws(p, end);
+        if (p < end && ((*p >= '0' && *p <= '9') || *p == '-')) {
+            out = static_cast<int32_t>(json_parser::parse_int(p, end));
+            return true;
+        }
+        return false;
+    }
+    if ((*p >= '0' && *p <= '9') || *p == '-') {
+        out = static_cast<int32_t>(json_parser::parse_int(p, end));
+        return true;
+    }
+    return false;
+}
+
+static bool detect_pretokenizer_byte_encoded(const std::string& content) {
+    // Heuristic: if the pre_tokenizer includes a Split stage, the regex runs
+    // on raw text and ByteLevel encoding should happen after splitting.
+    const auto pre_pos = content.find("\"pre_tokenizer\"");
+    if (pre_pos == std::string::npos) {
+        return false;
+    }
+    const std::string_view slice(content.data() + pre_pos,
+                                 std::min<size_t>(content.size() - pre_pos, 4096));
+    const bool has_split = (slice.find("\"type\":\"Split\"") != std::string_view::npos) ||
+                           (slice.find("\"type\": \"Split\"") != std::string_view::npos);
+    if (has_split) {
+        return false;
+    }
+    const auto byte_pos = slice.find("\"ByteLevel\"");
+    if (byte_pos == std::string_view::npos) {
+        return false;
+    }
+    const auto use_pos = slice.find("\"use_regex\"", byte_pos);
+    if (use_pos == std::string_view::npos) {
+        // Default ByteLevel behavior applies regex on byte-encoded text.
+        return true;
+    }
+    const auto true_pos = slice.find("true", use_pos);
+    if (true_pos != std::string_view::npos && true_pos - use_pos < 16) {
+        return true;
+    }
+    return false;
+}
 
 /* Parse vocab from JSON object */
 static bool parse_vocab(
@@ -288,6 +387,16 @@ bool load_tokenizer(
                         if (!parse_merges(p, end, tokenizer, error)) {
                             return false;
                         }
+                    } else if (model_key == "ignore_merges") {
+                        if (p + 4 <= end && std::strncmp(p, "true", 4) == 0) {
+                            tokenizer.ignore_merges = true;
+                            p += 4;
+                        } else if (p + 5 <= end && std::strncmp(p, "false", 5) == 0) {
+                            tokenizer.ignore_merges = false;
+                            p += 5;
+                        } else {
+                            json_parser::skip_value(p, end);
+                        }
                     } else {
                         json_parser::skip_value(p, end);
                     }
@@ -309,9 +418,45 @@ bool load_tokenizer(
         if (p < end && *p == ',') ++p;
     }
 
-    fprintf(stderr, "[DEBUG] load_tokenizer: vocab loaded, vocab_size=%zu, merges=%zu\n",
-            tokenizer.vocab.size(), tokenizer.merges.size());
+    // Extract pre_tokenizer regex (if present)
+    std::string pretokenizer_regex;
+    if (extract_pretokenizer_regex(content, pretokenizer_regex)) {
+        tokenizer.pretokenizer_regex = normalize_pretokenizer_regex(pretokenizer_regex);
+        tokenizer.pretokenizer_byte_encoded = detect_pretokenizer_byte_encoded(content);
+        fprintf(stderr, "[DEBUG] load_tokenizer: pretokenizer regex loaded (len=%zu, byte_encoded=%s)\n",
+                tokenizer.pretokenizer_regex.size(),
+                tokenizer.pretokenizer_byte_encoded ? "true" : "false");
+        fflush(stderr);
+    }
+
+    fprintf(stderr, "[DEBUG] load_tokenizer: vocab loaded, vocab_size=%zu, merges=%zu, ignore_merges=%s\n",
+            tokenizer.vocab.size(), tokenizer.merges.size(),
+            tokenizer.ignore_merges ? "true" : "false");
     fflush(stderr);
+
+    if (tokenizer.ignore_merges && !tokenizer.merges.empty()) {
+        const auto has_token = [&tokenizer](const std::string& tok) {
+            return std::find(tokenizer.special_tokens.begin(),
+                             tokenizer.special_tokens.end(), tok) != tokenizer.special_tokens.end();
+        };
+        if (has_token("<|start|>") && has_token("<|message|>") && has_token("<|channel|>")) {
+            tokenizer.ignore_merges = false;
+            fprintf(stderr, "[DEBUG] load_tokenizer: override ignore_merges=false for GPT-OSS-style tokenizer\n");
+            fflush(stderr);
+        }
+    }
+
+    if (!tokenizer.ignore_merges && !tokenizer.merges.empty()) {
+        tokenizer.merge_ranks.clear();
+        tokenizer.merge_ranks.reserve(tokenizer.merges.size());
+        for (size_t i = 0; i < tokenizer.merges.size(); ++i) {
+            const auto& pair = tokenizer.merges[i];
+            tokenizer.merge_ranks.emplace(merge_pair_key(pair.first, pair.second),
+                                          static_cast<int32_t>(i));
+        }
+    } else {
+        tokenizer.merge_ranks.clear();
+    }
 
     // Load tokenizer_config.json for additional settings
     std::filesystem::path config_path = std::filesystem::path(model_dir) / "tokenizer_config.json";
@@ -365,6 +510,32 @@ bool load_tokenizer(
         }
     }
 
+    // Fallback: read config.json token IDs (e.g., gpt-oss uses eos_token_id=<|return|>)
+    std::filesystem::path model_config_path = std::filesystem::path(model_dir) / "config.json";
+    std::ifstream model_config_file(model_config_path);
+    if (model_config_file.is_open()) {
+        std::string cfg_content((std::istreambuf_iterator<char>(model_config_file)),
+                                 std::istreambuf_iterator<char>());
+        int32_t token_id = -1;
+        if (extract_config_token_id(cfg_content, "eos_token_id", token_id)) {
+            if (token_id >= 0 && token_id < static_cast<int32_t>(tokenizer.vocab.size())) {
+                tokenizer.eos_token_id = token_id;
+            }
+        }
+        token_id = -1;
+        if (extract_config_token_id(cfg_content, "bos_token_id", token_id)) {
+            if (token_id >= 0 && token_id < static_cast<int32_t>(tokenizer.vocab.size())) {
+                tokenizer.bos_token_id = token_id;
+            }
+        }
+        token_id = -1;
+        if (extract_config_token_id(cfg_content, "pad_token_id", token_id)) {
+            if (token_id >= 0 && token_id < static_cast<int32_t>(tokenizer.vocab.size())) {
+                tokenizer.pad_token_id = token_id;
+            }
+        }
+    }
+
     // Debug: Print tokenizer info
     fprintf(stderr, "[DEBUG] load_tokenizer: vocab_size=%zu, bos_id=%d, eos_id=%d, pad_id=%d\n",
             tokenizer.vocab.size(), tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id);
@@ -373,37 +544,75 @@ bool load_tokenizer(
     return true;
 }
 
-/* GPT-2 byte encoder table - maps bytes to Unicode characters */
-static std::string byte_to_unicode(unsigned char b) {
-    // GPT-2 uses a specific mapping for bytes to Unicode
-    // Printable ASCII characters (except space) map to themselves
-    // Other bytes map to Unicode characters starting at U+0100
-    if (b >= 33 && b <= 126) {
-        // Printable ASCII (! to ~)
-        return std::string(1, static_cast<char>(b));
-    }
-    // Map other bytes to Unicode code points
-    // The GPT-2 encoding uses:
-    // 0x00-0x20 -> U+0100-U+0120
-    // 0x7F-0xFF -> after that
-    int codepoint;
-    if (b <= 32) {
-        codepoint = 0x0100 + b;  // 0x00->U+0100, 0x20(space)->U+0120='Ġ'
-    } else if (b == 127) {
-        codepoint = 0x0100 + 33;  // DEL
-    } else {
-        // 0x80-0xFF -> continue sequence
-        codepoint = 0x0100 + 34 + (b - 128);  // 0x80->U+0122, etc.
-    }
-    // Encode as UTF-8
+static std::string codepoint_to_utf8(uint32_t codepoint) {
     std::string result;
     if (codepoint <= 0x7F) {
-        result += static_cast<char>(codepoint);
+        result.push_back(static_cast<char>(codepoint));
     } else if (codepoint <= 0x7FF) {
-        result += static_cast<char>(0xC0 | (codepoint >> 6));
-        result += static_cast<char>(0x80 | (codepoint & 0x3F));
+        result.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
+        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0xFFFF) {
+        result.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
+        result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0x10FFFF) {
+        result.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
+        result.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+        result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
     }
     return result;
+}
+
+static const std::array<uint32_t, 256>& gpt2_byte_to_unicode_codepoints() {
+    static std::array<uint32_t, 256> table{};
+    static bool initialized = false;
+    if (!initialized) {
+        std::vector<int> bs;
+        bs.reserve(256);
+        for (int b = 33; b <= 126; ++b) bs.push_back(b);
+        for (int b = 161; b <= 172; ++b) bs.push_back(b);
+        for (int b = 174; b <= 255; ++b) bs.push_back(b);
+
+        std::vector<int> cs = bs;
+        int n = 0;
+        for (int b = 0; b < 256; ++b) {
+            if (std::find(bs.begin(), bs.end(), b) == bs.end()) {
+                bs.push_back(b);
+                cs.push_back(256 + n);
+                n++;
+            }
+        }
+
+        for (size_t i = 0; i < bs.size(); ++i) {
+            table[static_cast<size_t>(bs[i])] = static_cast<uint32_t>(cs[i]);
+        }
+        initialized = true;
+    }
+    return table;
+}
+
+static const std::array<int32_t, 512>& gpt2_unicode_to_byte_map() {
+    static std::array<int32_t, 512> table{};
+    static bool initialized = false;
+    if (!initialized) {
+        table.fill(-1);
+        const auto& b2u = gpt2_byte_to_unicode_codepoints();
+        for (size_t b = 0; b < b2u.size(); ++b) {
+            const uint32_t cp = b2u[b];
+            if (cp < table.size()) {
+                table[cp] = static_cast<int32_t>(b);
+            }
+        }
+        initialized = true;
+    }
+    return table;
+}
+
+/* GPT-2 byte encoder table - maps bytes to Unicode characters */
+static std::string byte_to_unicode(unsigned char b) {
+    const auto& table = gpt2_byte_to_unicode_codepoints();
+    return codepoint_to_utf8(table[b]);
 }
 
 /* Convert text to GPT-2 byte-level encoding */
@@ -417,30 +626,11 @@ static std::string text_to_gpt2_bytes(const std::string& text) {
 
 /* Reverse mapping: Unicode codepoint to original byte */
 static int unicode_to_byte(int codepoint) {
-    // Reverse the byte_to_unicode mapping
-    // Printable ASCII (33-126) map to themselves
-    if (codepoint >= 33 && codepoint <= 126) {
-        return codepoint;
+    const auto& table = gpt2_unicode_to_byte_map();
+    if (codepoint >= 0 && static_cast<size_t>(codepoint) < table.size()) {
+        return table[static_cast<size_t>(codepoint)];
     }
-    // U+0100-U+0120 -> bytes 0x00-0x20 (33 values)
-    if (codepoint >= 0x0100 && codepoint <= 0x0120) {
-        return codepoint - 0x0100;
-    }
-    // U+0121 -> DEL (127)
-    if (codepoint == 0x0121) {
-        return 127;
-    }
-    // U+0122-U+01A1 -> bytes 0x80-0xFF (128 values: 128-255)
-    // byte = 128 + (codepoint - 0x0122)
-    // max byte = 128 + (0x01A1 - 0x0122) = 128 + 127 = 255
-    if (codepoint >= 0x0122 && codepoint <= 0x01A1) {
-        return 128 + (codepoint - 0x0122);
-    }
-    // Not a GPT-2 byte-encoded character, return as-is if ASCII
-    if (codepoint < 128) {
-        return codepoint;
-    }
-    return -1;  // Invalid
+    return -1;
 }
 
 /* Convert GPT-2 byte-level encoding back to original text (hybrid mode)
@@ -483,14 +673,10 @@ static std::string gpt2_bytes_to_text(const std::string& encoded) {
             continue;
         }
 
-        // Check if this is a GPT-2 encoded codepoint (U+0100-U+01A1)
-        // These are the special byte-encoding characters used by GPT-2
-        if (codepoint >= 0x0100 && codepoint <= 0x01A1) {
-            // Convert GPT-2 encoded codepoint to original byte
-            int byte_val = unicode_to_byte(codepoint);
-            if (byte_val >= 0 && byte_val <= 255) {
-                result += static_cast<char>(byte_val);
-            }
+        // Convert GPT-2 encoded codepoint to original byte if it exists
+        int byte_val = unicode_to_byte(codepoint);
+        if (byte_val >= 0 && byte_val <= 255) {
+            result += static_cast<char>(byte_val);
         } else {
             // Not a GPT-2 encoded character - preserve as-is (e.g., Chinese, emoji)
             result.append(reinterpret_cast<const char*>(char_start), char_len);
@@ -500,16 +686,51 @@ static std::string gpt2_bytes_to_text(const std::string& encoded) {
     return result;
 }
 
+static std::string merge_pair_key(const std::string& first, const std::string& second) {
+    std::string key;
+    key.reserve(first.size() + 1 + second.size());
+    key.append(first);
+    key.push_back('\x1f');
+    key.append(second);
+    return key;
+}
+
+static std::vector<std::string> pretokenize_segment(
+    const TokenizerImpl& tokenizer,
+    const std::string& segment,
+    bool& already_byte_encoded
+) {
+    already_byte_encoded = false;
+    if (tokenizer.pretokenizer_regex.empty()) {
+        return {segment};
+    }
+
+    try {
+        std::string input = segment;
+        if (tokenizer.pretokenizer_byte_encoded) {
+            input = text_to_gpt2_bytes(segment);
+            already_byte_encoded = true;
+        }
+        return ::unicode_regex_split(input, {tokenizer.pretokenizer_regex});
+    } catch (const std::exception& ex) {
+        fprintf(stderr, "[DEBUG] tokenize: pretokenizer regex failed: %s\n", ex.what());
+        fflush(stderr);
+        already_byte_encoded = false;
+        return {segment};
+    }
+}
+
 /* BPE tokenize a segment (no special tokens) */
 static void bpe_tokenize_segment(
     const TokenizerImpl& tokenizer,
     const std::string& segment,
-    std::vector<int32_t>& tokens
+    std::vector<int32_t>& tokens,
+    bool already_byte_encoded
 ) {
     if (segment.empty()) return;
 
-    // Convert text to GPT-2 byte encoding
-    std::string encoded = text_to_gpt2_bytes(segment);
+    // Convert text to GPT-2 byte encoding unless already encoded
+    std::string encoded = already_byte_encoded ? segment : text_to_gpt2_bytes(segment);
 
     // Split into individual byte-encoded characters (UTF-8 aware)
     std::vector<std::string> chars;
@@ -530,22 +751,65 @@ static void bpe_tokenize_segment(
     fprintf(stderr, "[DEBUG] tokenize: split into %zu chars\n", chars.size());
     fflush(stderr);
 
-    // Apply BPE merges iteratively
-    for (const auto& merge : tokenizer.merges) {
-        std::vector<std::string> new_chars;
-        size_t j = 0;
-        while (j < chars.size()) {
-            if (j + 1 < chars.size() &&
-                chars[j] == merge.first &&
-                chars[j + 1] == merge.second) {
-                new_chars.push_back(chars[j] + chars[j + 1]);
-                j += 2;
+    if (tokenizer.ignore_merges) {
+        int found = 0, not_found = 0, byte_fallback = 0;
+        for (const auto& tok : chars) {
+            auto it = tokenizer.vocab_to_id.find(tok);
+            if (it != tokenizer.vocab_to_id.end()) {
+                tokens.push_back(it->second);
+                found++;
             } else {
-                new_chars.push_back(chars[j]);
-                j++;
+                not_found++;
+                // Try byte fallback
+                for (unsigned char byte : tok) {
+                    std::string byte_token = "<0x" +
+                        std::string(1, "0123456789ABCDEF"[byte >> 4]) +
+                        std::string(1, "0123456789ABCDEF"[byte & 0xF]) + ">";
+                    auto byte_it = tokenizer.vocab_to_id.find(byte_token);
+                    if (byte_it != tokenizer.vocab_to_id.end()) {
+                        tokens.push_back(byte_it->second);
+                        byte_fallback++;
+                    }
+                }
             }
         }
-        chars = std::move(new_chars);
+        fprintf(stderr, "[DEBUG] tokenize: ignore_merges=true, found=%d, not_found=%d, byte_fallback=%d\n",
+                found, not_found, byte_fallback);
+        fflush(stderr);
+        return;
+    }
+
+    if (!tokenizer.merge_ranks.empty()) {
+        while (chars.size() >= 2) {
+            int32_t best_rank = std::numeric_limits<int32_t>::max();
+            size_t best_idx = chars.size();
+            for (size_t j = 0; j + 1 < chars.size(); ++j) {
+                auto it = tokenizer.merge_ranks.find(merge_pair_key(chars[j], chars[j + 1]));
+                if (it != tokenizer.merge_ranks.end() && it->second < best_rank) {
+                    best_rank = it->second;
+                    best_idx = j;
+                }
+            }
+
+            if (best_idx >= chars.size()) {
+                break;
+            }
+
+            const std::string first = chars[best_idx];
+            const std::string second = chars[best_idx + 1];
+            std::vector<std::string> new_chars;
+            new_chars.reserve(chars.size());
+            for (size_t j = 0; j < chars.size(); ) {
+                if (j + 1 < chars.size() && chars[j] == first && chars[j + 1] == second) {
+                    new_chars.push_back(first + second);
+                    j += 2;
+                } else {
+                    new_chars.push_back(chars[j]);
+                    j += 1;
+                }
+            }
+            chars = std::move(new_chars);
+        }
     }
 
     fprintf(stderr, "[DEBUG] tokenize: after BPE, %zu pieces\n", chars.size());
@@ -559,6 +823,7 @@ static void bpe_tokenize_segment(
             tokens.push_back(it->second);
             found++;
         } else {
+            not_found++;
             // Try byte fallback
             for (unsigned char byte : tok) {
                 std::string byte_token = "<0x" +
@@ -572,6 +837,10 @@ static void bpe_tokenize_segment(
             }
         }
     }
+
+    fprintf(stderr, "[DEBUG] tokenize: bpe lookup found=%d, not_found=%d, byte_fallback=%d\n",
+            found, not_found, byte_fallback);
+    fflush(stderr);
 }
 
 /* Simple BPE tokenization with special token handling */
@@ -582,8 +851,9 @@ bool tokenize(
     bool add_bos,
     std::string& error
 ) {
-    fprintf(stderr, "[DEBUG] tokenize: entered, text_len=%zu, vocab_size=%zu, merges=%zu, special_tokens=%zu\n",
-            text.size(), tokenizer.vocab.size(), tokenizer.merges.size(), tokenizer.special_tokens.size());
+    fprintf(stderr, "[DEBUG] tokenize: entered, text_len=%zu, vocab_size=%zu, merges=%zu, special_tokens=%zu, ignore_merges=%s\n",
+            text.size(), tokenizer.vocab.size(), tokenizer.merges.size(), tokenizer.special_tokens.size(),
+            tokenizer.ignore_merges ? "true" : "false");
     fflush(stderr);
 
     tokens.clear();
@@ -637,7 +907,12 @@ bool tokenize(
             // Extract segment between current position and next special token
             if (next_special_pos > pos) {
                 std::string segment = text.substr(pos, next_special_pos - pos);
-                bpe_tokenize_segment(tokenizer, segment, tokens);
+                bool already_byte_encoded = false;
+                auto pieces = pretokenize_segment(tokenizer, segment, already_byte_encoded);
+                for (const auto& piece : pieces) {
+                    if (piece.empty()) continue;
+                    bpe_tokenize_segment(tokenizer, piece, tokens, already_byte_encoded);
+                }
                 pos = next_special_pos;
             }
         }

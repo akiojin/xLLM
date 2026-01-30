@@ -22,11 +22,11 @@ TEST(HttpServerTest, ServesHealthAndMetrics) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18086);
-    auto res = cli.Get("/health");
+    auto res = cli.Get("/api/health");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200);
 
-    auto metrics = cli.Get("/metrics");
+    auto metrics = cli.Get("/api/metrics");
     ASSERT_TRUE(metrics);
     EXPECT_EQ(metrics->status, 200);
 
@@ -75,7 +75,7 @@ TEST(HttpServerTest, ReturnsJsonErrorsWithHandlers) {
     auto body = nlohmann::json::parse(notfound->body);
     EXPECT_EQ(body.value("error", ""), "not_found");
 
-    auto internal = cli.Get("/internal-error");
+    auto internal = cli.Get("/api/internal-error");
     ASSERT_TRUE(internal);
     EXPECT_EQ(internal->status, 500);
     auto ebody = nlohmann::json::parse(internal->body);
@@ -103,12 +103,12 @@ TEST(HttpServerTest, MiddlewareCanShortCircuitRequests) {
 
     httplib::Client cli("127.0.0.1", 18091);
     httplib::Headers h{{"X-Block", "1"}};
-    auto blocked = cli.Get("/health", h);
+    auto blocked = cli.Get("/api/health", h);
     ASSERT_TRUE(blocked);
     EXPECT_EQ(blocked->status, 403);
     EXPECT_EQ(blocked->body, "blocked");
 
-    auto allowed = cli.Get("/health");
+    auto allowed = cli.Get("/api/health");
     ASSERT_TRUE(allowed);
     EXPECT_EQ(allowed->status, 200);
 
@@ -129,7 +129,7 @@ TEST(HttpServerTest, LoggerReceivesRequests) {
     server.start();
 
     httplib::Client cli("127.0.0.1", 18092);
-    auto res = cli.Get("/health");
+    auto res = cli.Get("/api/health");
     ASSERT_TRUE(res);
     EXPECT_TRUE(logged.load());
 

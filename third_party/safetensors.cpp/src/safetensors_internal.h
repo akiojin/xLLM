@@ -93,6 +93,12 @@ struct TokenizerImpl {
 
     // BPE merge rules
     std::vector<std::pair<std::string, std::string>> merges;
+    bool ignore_merges = false;
+    std::unordered_map<std::string, int32_t> merge_ranks;
+
+    // Pretokenizer regex (Hugging Face tokenizer.json)
+    std::string pretokenizer_regex;
+    bool pretokenizer_byte_encoded = false;
 
     // Special tokens (e.g., <|im_start|>, <|im_end|>, etc.)
     std::unordered_set<std::string> special_tokens;

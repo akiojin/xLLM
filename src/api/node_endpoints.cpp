@@ -56,7 +56,7 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
         }
     };
 
-    server.Get("/v0/logs", [](const httplib::Request& req, httplib::Response& res) {
+    auto handle_logs = [](const httplib::Request& req, httplib::Response& res) {
         int limit = 200;
         if (req.has_param("tail")) {
             try {
@@ -144,18 +144,10 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
             body["entries"].push_back(e);
         }
         res.set_content(body.dump(), "application/json");
-    });
+    };
+    server.Get("/api/logs", handle_logs);
 
-    server.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
-        nlohmann::json body = {
-            {"status", health_status_},
-            {"supports_responses_api", true}
-        };
-        res.set_content(body.dump(), "application/json");
-    });
-
-    // Phase 1.2: GET /v0/health - Extended health endpoint with GPU and load info
-    server.Get("/v0/health", [this](const httplib::Request&, httplib::Response& res) {
+    auto handle_health = [this](const httplib::Request&, httplib::Response& res) {
         // Determine status based on readiness and active requests
         std::string status;
         unsigned int active_reqs = active_request_count();
@@ -203,23 +195,26 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
                 {"ram_total_bytes", usage.mem_total_bytes},
                 {"vram_used_bytes", usage.vram_used_bytes},
                 {"vram_total_bytes", usage.vram_total_bytes}
-            }}
+            }},
+            {"supports_responses_api", true}
         };
         res.set_content(body.dump(), "application/json");
-    });
+    };
+    server.Get("/api/health", handle_health);
 
-    server.Get("/startup", [](const httplib::Request&, httplib::Response& res) {
+    auto handle_startup = [](const httplib::Request&, httplib::Response& res) {
         if (xllm::is_ready()) {
             res.set_content(R"({"status":"ready"})", "application/json");
         } else {
             res.status = 503;
             res.set_content(R"({"status":"starting"})", "application/json");
         }
-    });
+    };
+    server.Get("/api/startup", handle_startup);
 
     // SPEC-f8e3a1b7: /v0/system - System info endpoint for llmlb integration
     // Returns device information in the format expected by llmlb
-    server.Get("/v0/system", [this](const httplib::Request&, httplib::Response& res) {
+    auto handle_system_v0 = [this](const httplib::Request&, httplib::Response& res) {
         // Build GPU devices array in llmlb-expected format
         nlohmann::json gpu_devices_json = nlohmann::json::array();
         for (const auto& dev : gpu_devices_) {
@@ -241,9 +236,10 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
             }}
         };
         res.set_content(body.dump(), "application/json");
-    });
+    };
+    server.Get("/api/system", handle_system_v0);
 
-    server.Get("/metrics", [this](const httplib::Request&, httplib::Response& res) {
+    auto handle_metrics = [this](const httplib::Request&, httplib::Response& res) {
         auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - start_time_).count();
         nlohmann::json body = {
@@ -253,24 +249,22 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
             {"gpu_capability", gpu_capability_}
         };
         res.set_content(body.dump(), "application/json");
-    });
+    };
+    server.Get("/api/metrics", handle_metrics);
 
-    server.Get("/metrics/prom", [this, &populate_prometheus](const httplib::Request&, httplib::Response& res) {
+    auto handle_metrics_prom = [this, &populate_prometheus](const httplib::Request&, httplib::Response& res) {
         populate_prometheus();
         res.set_content(exporter_.render(), "text/plain");
-    });
+    };
+    server.Get("/api/metrics/prom", handle_metrics_prom);
 
-    server.Get("/v0/metrics", [this, &populate_prometheus](const httplib::Request&, httplib::Response& res) {
-        populate_prometheus();
-        res.set_content(exporter_.render(), "text/plain");
-    });
-
-    server.Get("/log/level", [](const httplib::Request&, httplib::Response& res) {
+    auto handle_log_level_get = [](const httplib::Request&, httplib::Response& res) {
         nlohmann::json body = {{"level", spdlog::level::to_string_view(spdlog::get_level()).data()}};
         res.set_content(body.dump(), "application/json");
-    });
+    };
+    server.Get("/api/log/level", handle_log_level_get);
 
-    server.Post("/log/level", [](const httplib::Request& req, httplib::Response& res) {
+    auto handle_log_level_post = [](const httplib::Request& req, httplib::Response& res) {
         auto j = nlohmann::json::parse(req.body, nullptr, false);
         if (j.is_discarded() || !j.contains("level")) {
             res.status = 400;
@@ -281,11 +275,13 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
         spdlog::set_level(logger::parse_level(level_str));
         nlohmann::json body = {{"level", spdlog::level::to_string_view(spdlog::get_level()).data()}};
         res.set_content(body.dump(), "application/json");
-    });
+    };
+    server.Post("/api/log/level", handle_log_level_post);
 
-    server.Get("/internal-error", [](const httplib::Request&, httplib::Response&) {
+    auto handle_internal_error = [](const httplib::Request&, httplib::Response&) {
         throw std::runtime_error("boom");
-    });
+    };
+    server.Get("/api/internal-error", handle_internal_error);
 }
 
 }  // namespace xllm

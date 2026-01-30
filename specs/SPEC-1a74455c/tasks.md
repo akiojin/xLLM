@@ -22,7 +22,7 @@
   - /v1/responses 統合テスト（object/usage確認）
 
 - [x] T003 [P] `xllm/tests/integration/node_endpoints_test.cpp`
-  - /health に supports_responses_api が含まれることを確認
+  - /api/health に supports_responses_api が含まれることを確認
 
 ## Phase 2: コア実装
 
@@ -37,7 +37,7 @@
   - ストリーミングSSE対応
 
 - [x] T006 `xllm/src/api/node_endpoints.cpp`
-  - /health に supports_responses_api 追加
+  - /api/health に supports_responses_api 追加
 
 ## Phase 3: 仕上げ
 
