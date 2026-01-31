@@ -58,12 +58,16 @@ static bool extract_pretokenizer_regex(const std::string& content, std::string& 
     const char* end = p + content.size();
     const char* key = "\"Regex\"";
     const char* found = std::strstr(p, key);
+    while (found) {
+        const char* q = found + std::strlen(key);
+        json_parser::skip_ws(q, end);
+        if (q < end && *q == ':') {
+            p = q + 1;
+            break;
+        }
+        found = std::strstr(found + 1, key);
+    }
     if (!found) return false;
-
-    p = found + std::strlen(key);
-    while (p < end && *p != ':') ++p;
-    if (p >= end) return false;
-    ++p;
     json_parser::skip_ws(p, end);
     if (p >= end || *p != '"') return false;
 
