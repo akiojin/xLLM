@@ -146,9 +146,10 @@ void ImageEndpoints::respondError(httplib::Response& res,
                                   const std::string& code,
                                   const std::string& message) {
     res.status = status;
+    const char* type = status >= 500 ? "internal_error" : "invalid_request_error";
     setJson(res, {{"error",
                    {{"message", message},
-                    {"type", "invalid_request_error"},
+                    {"type", type},
                     {"code", code}}}});
 }
 

@@ -324,7 +324,7 @@ inference:
 | POST `/v1/images/generations` | 画像生成 |
 | POST `/v1/responses` | Responses API（完全互換） |
 
-### xLLM独自エンドポイント（/v0/）
+### xLLM独自エンドポイント（/api/）
 
 | エンドポイント | 説明 |
 |----------------|------|
@@ -332,7 +332,7 @@ inference:
 | GET `/api/system` | システム情報（GPU/CPU/RAM/バージョン全て） |
 | GET `/api/metrics/prom` | Prometheus形式メトリクス |
 
-**注**: `/v0/models/load` と `/v0/models/unload` は**不要**（オンデマンドロード + LRUアンロードで管理）
+**注**: `/api/models/load` と `/api/models/unload` は**不要**（オンデマンドロード + LRUアンロードで管理）
 
 ## llmlb連携
 

@@ -6,6 +6,7 @@
  */
 
 #include "safetensors_engine.h"
+#include "core/harmony_utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -198,33 +199,6 @@ std::string strip_control_tokens(std::string text) {
     return text.substr(start, end - start + 1);
 }
 
-std::string harmony_current_date() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-#if defined(_WIN32)
-    localtime_s(&tm, &t);
-#else
-    localtime_r(&t, &tm);
-#endif
-    char buf[11] = {0};
-    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm) == 0) {
-        return "1970-01-01";
-    }
-    return std::string(buf);
-}
-
-std::string build_harmony_system_message() {
-    std::ostringstream oss;
-    oss << "<|start|>system<|message|>"
-        << "You are ChatGPT, a large language model trained by OpenAI.\n"
-        << "Knowledge cutoff: 2024-06\n"
-        << "Current date: " << harmony_current_date() << "\n\n"
-        << "Reasoning: low\n\n"
-        << "# Valid channels: analysis, commentary, final. Channel must be included for every message.\n"
-        << "<|end|>\n";
-    return oss.str();
-}
 
 std::string extract_gpt_oss_final(const std::string& output) {
     const std::string end_token = "<|return|>";
@@ -308,7 +282,7 @@ std::string clean_gpt_oss_output(const std::string& output) {
 
 std::string build_gpt_oss_prompt(const std::vector<ChatMessage>& messages) {
     std::ostringstream oss;
-    oss << build_harmony_system_message();
+    oss << harmony::build_system_message();
 
     std::string developer_instructions;
     for (const auto& msg : messages) {
@@ -478,6 +452,11 @@ ModelLoadResult SafetensorsEngine::loadModel(const ModelDescriptor& descriptor) 
     result.success = true;
     result.error_code = EngineErrorCode::kOk;
     return result;
+}
+
+bool SafetensorsEngine::isModelLoaded(const std::string& model_name) const {
+    std::lock_guard<std::mutex> lock(models_mutex_);
+    return loaded_models_.find(model_name) != loaded_models_.end();
 }
 
 SafetensorsEngine::LoadedModel* SafetensorsEngine::getOrLoadModel(

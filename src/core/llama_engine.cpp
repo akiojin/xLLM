@@ -5,7 +5,6 @@
 #include "core/lora_utils.h"
 #include "include/llama.h"
 #include "utils/stop_sequences.h"
-#include "speculative.h"
 
 #include <spdlog/spdlog.h>
 #include <random>
@@ -197,37 +196,6 @@ void emit_token_metrics(const InferenceParams& params, uint32_t token_id) {
     params.on_token_callback(params.on_token_callback_ctx, token_id, steady_now_ns());
 }
 
-struct DraftContext {
-    llama_context* ctx{nullptr};
-    llama_model* model{nullptr};
-    std::unique_ptr<KvCacheScope> scope;
-};
-
-DraftContext prepare_draft_context(LlamaManager& manager,
-                                   const InferenceParams& params,
-                                   llama_context* target_ctx) {
-    DraftContext draft;
-    if (params.draft_model_path.empty()) {
-        return draft;
-    }
-
-    if (!manager.loadModelIfNeeded(params.draft_model_path)) {
-        throw std::runtime_error("Failed to load draft model: " + params.draft_model_path);
-    }
-
-    draft.ctx = manager.getContext(params.draft_model_path);
-    draft.model = manager.getModel(params.draft_model_path);
-    if (!draft.ctx || !draft.model) {
-        throw std::runtime_error("Failed to get draft context/model for: " + params.draft_model_path);
-    }
-
-    if (!common_speculative_are_compatible(target_ctx, draft.ctx)) {
-        throw std::runtime_error("Draft model is not compatible with target model");
-    }
-
-    draft.scope = std::make_unique<KvCacheScope>(draft.ctx);
-    return draft;
-}
 
 // T049: Compute log-sum-exp for numerical stability
 double logsumexp(const float* logits, int n_vocab) {
@@ -314,8 +282,6 @@ static const std::vector<std::string> kDefaultStopSequences = {
     "<|endoftext|>",    // GPT-style
 };
 
-// 前方宣言
-static std::string stripControlTokens(std::string text);
 
 // コンストラクタ
 LlamaEngine::LlamaEngine(LlamaManager& manager)
@@ -363,23 +329,6 @@ static std::string buildChatMLPrompt(const std::vector<ChatMessage>& messages) {
     return oss.str();
 }
 
-// 制御トークンを除去してトリム
-static std::string stripControlTokens(std::string text) {
-    const std::vector<std::string> tokens = {
-        "<|start|>", "<|end|>", "<|message|>", "<|channel|>",
-        "<|im_start|>", "<|im_end|>", "<s>", "</s>", "<|endoftext|>", "<|eot_id|>"
-    };
-    for (const auto& t : tokens) {
-        size_t pos = 0;
-        while ((pos = text.find(t, pos)) != std::string::npos) {
-            text.erase(pos, t.size());
-        }
-    }
-    auto l = text.find_first_not_of(" \t\n\r");
-    if (l == std::string::npos) return "";
-    auto r = text.find_last_not_of(" \t\n\r");
-    return text.substr(l, r - l + 1);
-}
 
 // テスト用の後処理関数
 std::string postProcessGeneratedTextForTest(const std::string& output) {

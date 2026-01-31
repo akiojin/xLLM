@@ -250,12 +250,12 @@ static bool stcpp_convert_mxfp4_to_f16(
     out.resize(static_cast<size_t>(n_rows) * static_cast<size_t>(n_cols));
 
     std::vector<float> row_f32(static_cast<size_t>(n_cols));
-    static bool stcpp_mxfp4_row0_logged = false;
+    static std::atomic<bool> stcpp_mxfp4_row0_logged{false};
     for (int64_t r = 0; r < n_rows; ++r) {
         const auto* src = reinterpret_cast<const block_mxfp4*>(packed.data() + r * src_row_size);
         dequantize_row_mxfp4(src, row_f32.data(), n_cols);
-        if (!stcpp_mxfp4_row0_logged && r == 0) {
-            stcpp_mxfp4_row0_logged = true;
+        bool expected = false;
+        if (r == 0 && stcpp_mxfp4_row0_logged.compare_exchange_strong(expected, true)) {
             uint32_t bits = 0;
             if (src[0].e < 2) {
                 bits = 0x00200000u << src[0].e;
@@ -351,16 +351,8 @@ struct Mxfp4ScaleClamp {
 };
 
 static Mxfp4ScaleClamp stcpp_get_mxfp4_scale_clamp(const uint8_t* scales, size_t scales_size) {
-    static std::unordered_map<const uint8_t*, Mxfp4ScaleClamp> cache;
-
-    auto it = cache.find(scales);
-    if (it != cache.end()) {
-        return it->second;
-    }
-
     Mxfp4ScaleClamp clamp;
     if (!scales || scales_size == 0) {
-        cache.emplace(scales, clamp);
         return clamp;
     }
 
@@ -395,7 +387,6 @@ static Mxfp4ScaleClamp stcpp_get_mxfp4_scale_clamp(const uint8_t* scales, size_t
         clamp.max = static_cast<uint8_t>(max_v);
     }
 
-    cache.emplace(scales, clamp);
     return clamp;
 }
 
@@ -1909,33 +1900,9 @@ GgmlModel* load_ggml_model(
             } else if (moe_wtype == GGML_TYPE_F16) {
                 std::vector<ggml_fp16_t> f16;
                 const int64_t n_rows = static_cast<int64_t>(hparams.n_expert) * hparams.n_ff;
-                if (layer_idx == 3) {
-                    std::vector<float> dbg_row(static_cast<size_t>(hparams.n_embd));
-                    const auto* src = reinterpret_cast<const block_mxfp4*>(packed.data());
-                    uint32_t bits = 0;
-                    if (src[0].e < 2) {
-                        bits = 0x00200000u << src[0].e;
-                    } else {
-                        bits = static_cast<uint32_t>(src[0].e - 1) << 23;
-                    }
-                    float d0 = 0.0f;
-                    memcpy(&d0, &bits, sizeof(float));
-                    dequantize_row_mxfp4(src, dbg_row.data(), hparams.n_embd);
-                    fprintf(stderr, "[DEBUG] gate packed row0 e=%u d=%g first5: %.6f %.6f %.6f %.6f %.6f\n",
-                            src[0].e, d0, dbg_row[0], dbg_row[1], dbg_row[2], dbg_row[3], dbg_row[4]);
-                    fflush(stderr);
-                }
                 if (!stcpp_convert_mxfp4_to_f16(packed, n_rows, hparams.n_embd, f16, error)) {
                     error = "gpt-oss gate f16 conversion failed for layer " + std::to_string(layer_idx) + ": " + error;
                     return nullptr;
-                }
-                if (layer_idx == 3) {
-                    float dbg[5] = {};
-                    const int64_t dbg_count = std::min<int64_t>(5, static_cast<int64_t>(f16.size()));
-                    ggml_fp16_to_fp32_row(f16.data(), dbg, static_cast<int>(dbg_count));
-                    fprintf(stderr, "[DEBUG] gate f16 pre-upload first5: %.6f %.6f %.6f %.6f %.6f\n",
-                            dbg[0], dbg[1], dbg[2], dbg[3], dbg[4]);
-                    fflush(stderr);
                 }
                 const size_t f16_bytes = f16.size() * sizeof(ggml_fp16_t);
                 if (f16_bytes != ggml_nbytes(layer.moe_gate_exps)) {
@@ -2198,49 +2165,6 @@ GgmlModel* load_ggml_model(
                 fflush(stderr);
             }
         }
-    }
-
-    // Debug: verify tok_embd has non-zero values
-    if (model->tensors.tok_embd && model->tensors.tok_embd->buffer) {
-        std::vector<float> test_data(5);
-        ggml_backend_tensor_get(model->tensors.tok_embd, test_data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] load_ggml_model: tok_embd first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
-                test_data[0], test_data[1], test_data[2], test_data[3], test_data[4]);
-        fflush(stderr);
-    }
-
-    // Check if output (lm_head) was loaded - if not, use tied embeddings
-    if (model->tensors.output && model->tensors.output->buffer) {
-        std::vector<float> test_data(5);
-        ggml_backend_tensor_get(model->tensors.output, test_data.data(), 0, 5 * sizeof(float));
-
-        // Check if output is all zeros (lm_head not found in safetensors)
-        bool all_zeros = true;
-        for (int i = 0; i < 5; ++i) {
-            if (test_data[i] != 0.0f) {
-                all_zeros = false;
-                break;
-            }
-        }
-
-        if (all_zeros && model->tensors.tok_embd && model->tensors.tok_embd->buffer) {
-            // Tied embeddings: copy tok_embd data to output (lm_head)
-            size_t tensor_size = ggml_nbytes(model->tensors.output);
-            std::vector<char> buffer(tensor_size);
-            ggml_backend_tensor_get(model->tensors.tok_embd, buffer.data(), 0, tensor_size);
-            ggml_backend_tensor_set(model->tensors.output, buffer.data(), 0, tensor_size);
-
-            fprintf(stderr, "[DEBUG] load_ggml_model: tied embeddings - copied tok_embd to output (lm_head), size=%zu\n",
-                    tensor_size);
-            fflush(stderr);
-
-            // Verify the copy
-            ggml_backend_tensor_get(model->tensors.output, test_data.data(), 0, 5 * sizeof(float));
-        }
-
-        fprintf(stderr, "[DEBUG] load_ggml_model: output (lm_head) first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
-                test_data[0], test_data[1], test_data[2], test_data[3], test_data[4]);
-        fflush(stderr);
     }
 
     return model.release();
