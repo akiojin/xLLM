@@ -15,7 +15,7 @@
 まずビルド:
 
 ```bash
-cmake -S xllm -B xllm/build
+cmake -S . -B build
 cmake --build node/build -j
 
 cargo build -p llmlb

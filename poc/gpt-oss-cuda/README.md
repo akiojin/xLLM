@@ -1,7 +1,7 @@
 # PoC: gpt-oss-20b (CUDA / llama.cpp GGUF)
 
 > **注意**: このPoCは参考用であり、仕様・実装の正ではありません。\
-> CUDA DLL（`gptoss_cuda.dll` / `nemotron_cuda.dll`）の管理ソースは `xllm/engines/gptoss/cuda/` と `xllm/engines/nemotron/cuda/` に移行中です。
+> CUDA DLL（`gptoss_cuda.dll` / `nemotron_cuda.dll`）の管理ソースは `engines/gptoss/cuda/` と `engines/nemotron/cuda/` に移行中です。
 
 このPoCは、`gpt-oss-20b` を **llmlb + xllm (CUDA / llama.cpp)** でロードして `chat/completions` が返ることを確認します。
 
@@ -16,8 +16,8 @@
 ## ビルド
 
 ```bash
-cmake -S xllm -B xllm/build -DBUILD_WITH_CUDA=ON
-cmake --build xllm/build -j
+cmake -S . -B build -DBUILD_WITH_CUDA=ON
+cmake --build build -j
 
 # または:
 # npm run build:xllm:cuda

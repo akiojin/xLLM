@@ -11,8 +11,8 @@ Env vars:
   MODEL_FILENAME        (default: model.safetensors.index.json)
   LLMLB_PORT           (default: 18080)
   NODE_PORT             (default: 32769)   # runtime_port = NODE_PORT - 1
-  LLMLB_BIN            (default: target/debug/llmlb)
-  NODE_BIN              (default: xllm/build/xllm)
+  LLMLB_BIN            (default: target/debug/llmlb or ../llmlb/target/debug/llmlb)
+  NODE_BIN              (default: build/xllm)
 
 Request shaping:
   USER_MESSAGE          (default: Say hello in one short sentence.)
@@ -61,8 +61,12 @@ USER_MESSAGE="${USER_MESSAGE:-Say hello in one short sentence.}"
 SYSTEM_MESSAGE="${SYSTEM_MESSAGE:-}"
 KEEP_RUNNING="${KEEP_RUNNING:-0}"
 
-LLMLB_BIN="${LLMLB_BIN:-"$REPO_ROOT/target/debug/llmlb"}"
-NODE_BIN="${NODE_BIN:-"$REPO_ROOT/xllm/build/xllm"}"
+DEFAULT_LLMLB_BIN="$REPO_ROOT/target/debug/llmlb"
+if [[ ! -x "$DEFAULT_LLMLB_BIN" ]]; then
+  DEFAULT_LLMLB_BIN="$REPO_ROOT/../llmlb/target/debug/llmlb"
+fi
+LLMLB_BIN="${LLMLB_BIN:-"$DEFAULT_LLMLB_BIN"}"
+NODE_BIN="${NODE_BIN:-"$REPO_ROOT/build/xllm"}"
 
 MODEL_REPO="${MODEL_REPO:-openai/gpt-oss-20b}"
 MODEL_FILENAME="${MODEL_FILENAME:-model.safetensors.index.json}"
@@ -91,7 +95,7 @@ fi
 
 if [[ ! -x "$NODE_BIN" ]]; then
   echo "[ERROR] Node binary not found: $NODE_BIN" >&2
-  echo "        Build it with: cmake --build xllm/build" >&2
+  echo "        Build it with: cmake --build build" >&2
   exit 1
 fi
 
