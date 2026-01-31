@@ -3,7 +3,7 @@
 ## 前提条件
 
 | 項目 | 要件 |
-|------|------|
+| ------ | ------ |
 | OS | macOS (Metal) / Windows (CUDA) |
 | GPU | Metal 対応 / NVIDIA CUDA 対応 |
 | モデル配置 | `~/.llmlb/models` 配下に配置（GGUF / safetensors） |
