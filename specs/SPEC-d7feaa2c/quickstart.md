@@ -14,7 +14,7 @@
 
 デフォルトは `~/.llmlb/models`（Windows は `%USERPROFILE%\.llmlb\models`）。
 
-```
+```text
 ~/.llmlb/models/
   llama-3.2-1b/
     model.gguf
