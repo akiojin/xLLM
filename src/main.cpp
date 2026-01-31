@@ -511,8 +511,9 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
                                     update_progress(file, downloaded, total);
                                 };
                                 callbacks.on_complete = [&](const std::string& file, bool success) {
-                                    (void)success;
-                                    finalize_file(file);
+                                    if (success) {
+                                        finalize_file(file);
+                                    }
                                 };
 
                                 std::thread worker([&]() {
