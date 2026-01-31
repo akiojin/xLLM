@@ -482,11 +482,11 @@ std::string LlamaEngine::generateChat(
     if (!ctx || !model) {
         throw std::runtime_error("Failed to get context/model for: " + gguf_path);
     }
-    DraftContext draft = prepare_draft_context(manager_, params, ctx);
     KvCacheScope kv_scope(ctx);
     LoraScope lora_scope(ctx, model, params.loras);
-    if (draft.ctx) {
-        spdlog::info("Loaded draft model for speculative decoding: {}", params.draft_model_path);
+    if (!params.draft_model_path.empty()) {
+        spdlog::warn("Speculative decoding is not supported for llama runtime; ignoring draft_model: {}",
+                     params.draft_model_path);
     }
 
     // 4. プロンプト構築（モデル固有のチャットテンプレートを使用）
@@ -737,11 +737,11 @@ std::vector<std::string> LlamaEngine::generateChatStream(
     if (!ctx || !model) {
         throw std::runtime_error("Failed to get context/model");
     }
-    DraftContext draft = prepare_draft_context(manager_, params, ctx);
     KvCacheScope kv_scope(ctx);
     LoraScope lora_scope(ctx, model, params.loras);
-    if (draft.ctx) {
-        spdlog::info("Loaded draft model for speculative decoding (stream): {}", params.draft_model_path);
+    if (!params.draft_model_path.empty()) {
+        spdlog::warn("Speculative decoding is not supported for llama runtime; ignoring draft_model: {}",
+                     params.draft_model_path);
     }
 
     // 3. vocab取得とプロンプト処理（モデル固有のチャットテンプレートを使用）

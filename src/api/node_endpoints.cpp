@@ -252,7 +252,7 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
     };
     server.Get("/api/metrics", handle_metrics);
 
-    auto handle_metrics_prom = [this, &populate_prometheus](const httplib::Request&, httplib::Response& res) {
+    auto handle_metrics_prom = [this, populate_prometheus](const httplib::Request&, httplib::Response& res) {
         populate_prometheus();
         res.set_content(exporter_.render(), "text/plain");
     };
