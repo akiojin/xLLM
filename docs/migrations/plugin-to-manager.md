@@ -5,7 +5,7 @@ This migration applies to xLLM runtime deployments that previously used engine p
 ## Summary
 - The plugin loader and `LLM_RUNTIME_ENGINE_PLUGINS_DIR` were removed.
 - Text runtimes are built-in: `llama_cpp` and `safetensors_cpp`.
-- Engine manifests and shared libraries under `xllm/engines` are no longer used.
+- Engine manifests and shared libraries under `engines` are no longer used.
 
 ## Required actions
 1. Remove `LLM_RUNTIME_ENGINE_PLUGINS_DIR` from your environment and config.

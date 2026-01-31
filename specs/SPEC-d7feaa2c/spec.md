@@ -64,7 +64,7 @@ API endpoints
 
 ## Breaking changes
 - Removed plugin directory and plugin-specific config fields.
-- Removed engine plugin shared libraries and `manifest.json` under `xllm/engines`.
+- Removed engine plugin shared libraries and `manifest.json` under `engines`.
 
 ## Migration
 - Remove plugin configuration (e.g., engine plugins directory and restart policy).
