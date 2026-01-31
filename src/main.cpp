@@ -163,9 +163,6 @@ std::optional<HfModelRef> parseHfModelRef(const std::string& input) {
 #ifdef USE_WHISPER
 #include "core/audio_manager.h"
 #include "api/audio_endpoints.h"
-#endif
-
-#ifdef USE_ONNX_RUNTIME
 #include "core/onnx_tts_manager.h"
 #endif
 
@@ -226,12 +223,13 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         xllm::AudioManager audio_manager(models_dir);
         spdlog::info("AudioManager initialized for ASR support");
         supported_runtimes.push_back("whisper_cpp");
+
+        // Initialize OnnxTtsManager for TTS (VibeVoice works even without ONNX runtime)
+        xllm::OnnxTtsManager tts_manager(models_dir);
+        spdlog::info("OnnxTtsManager initialized for TTS support");
 #endif
 
 #ifdef USE_ONNX_RUNTIME
-        // Initialize OnnxTtsManager for TTS
-        xllm::OnnxTtsManager tts_manager(models_dir);
-        spdlog::info("OnnxTtsManager initialized for TTS support");
         supported_runtimes.push_back("onnx_runtime");
 #endif
 
@@ -385,14 +383,9 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         server.enableCompression(cfg.gzip_enabled);
 
 #ifdef USE_WHISPER
-        // Register audio endpoints for ASR (and TTS if available)
-#ifdef USE_ONNX_RUNTIME
+        // Register audio endpoints for ASR + TTS (VibeVoice works even without ONNX runtime)
         xllm::AudioEndpoints audio_endpoints(audio_manager, tts_manager);
         spdlog::info("Audio endpoints registered for ASR + TTS");
-#else
-        xllm::AudioEndpoints audio_endpoints(audio_manager);
-        spdlog::info("Audio endpoints registered for ASR");
-#endif
         audio_endpoints.registerRoutes(server.getServer());
 #endif
 

@@ -22,6 +22,12 @@ using namespace xllm;
 namespace fs = std::filesystem;
 
 namespace {
+constexpr const char* kSamplePngDataUrl =
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+}  // namespace
+
+namespace {
 class TempDir {
 public:
     TempDir() {
@@ -653,6 +659,74 @@ TEST(OpenAIEndpointsTest, ResponsesReturnsUsage) {
     EXPECT_EQ(j["usage"]["total_tokens"].get<int>(),
               j["usage"]["input_tokens"].get<int>() +
                   j["usage"]["output_tokens"].get<int>());
+
+    server.stop();
+}
+
+TEST(OpenAIEndpointsTest, ChatCompletionsAcceptsImageUrl) {
+    xllm::set_ready(true);
+
+    ModelRegistry registry;
+    registry.setModels({"gpt-oss-7b"});
+    InferenceEngine engine;
+    NodeConfig config;
+    OpenAIEndpoints openai(registry, engine, config, GpuBackend::Cpu);
+    NodeEndpoints node;
+    HttpServer server(18112, openai, node);
+    server.start();
+
+    httplib::Client cli("127.0.0.1", 18112);
+    std::string body = std::string(R"({
+        "model":"gpt-oss-7b",
+        "messages":[{"role":"user","content":[
+            {"type":"text","text":"What is in this image?"},
+            {"type":"image_url","image_url":{"url":")") +
+        kSamplePngDataUrl +
+        R"("}}
+        ]}]
+    })";
+
+    auto res = cli.Post("/v1/chat/completions", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["object"], "chat.completion");
+    EXPECT_NE(j["choices"][0]["message"]["content"].get<std::string>().find("Response to"),
+              std::string::npos);
+
+    server.stop();
+}
+
+TEST(OpenAIEndpointsTest, ResponsesAcceptsImageInput) {
+    xllm::set_ready(true);
+
+    ModelRegistry registry;
+    registry.setModels({"gpt-oss-7b"});
+    InferenceEngine engine;
+    NodeConfig config;
+    OpenAIEndpoints openai(registry, engine, config, GpuBackend::Cpu);
+    NodeEndpoints node;
+    HttpServer server(18113, openai, node);
+    server.start();
+
+    httplib::Client cli("127.0.0.1", 18113);
+    std::string body = std::string(R"({
+        "model":"gpt-oss-7b",
+        "input":[{"role":"user","content":[
+            {"type":"input_text","text":"Describe this image"},
+            {"type":"input_image","image_url":{"url":")") +
+        kSamplePngDataUrl +
+        R"("}}
+        ]}]
+    })";
+
+    auto res = cli.Post("/v1/responses", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["object"], "response");
+    EXPECT_NE(j["output"][0]["content"][0]["text"].get<std::string>().find("Response to"),
+              std::string::npos);
 
     server.stop();
 }

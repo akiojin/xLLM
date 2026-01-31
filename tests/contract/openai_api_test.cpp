@@ -14,6 +14,12 @@
 using namespace xllm;
 using json = nlohmann::json;
 
+namespace {
+constexpr const char* kSamplePngDataUrl =
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+}  // namespace
+
 class OpenAIContractFixture : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -66,6 +72,38 @@ TEST_F(OpenAIContractFixture, ChatCompletionsSupportsStreamingSSE) {
     EXPECT_NE(res->body.find("data:"), std::string::npos);
     EXPECT_NE(res->body.find("[DONE]"), std::string::npos);
     EXPECT_EQ(res->get_header_value("Content-Type"), "text/event-stream");
+}
+
+TEST_F(OpenAIContractFixture, ChatCompletionsAcceptsImageUrl) {
+    httplib::Client cli("127.0.0.1", 18090);
+    std::string body = std::string(R"({
+        "model":"gpt-oss-7b",
+        "messages":[{"role":"user","content":[
+            {"type":"text","text":"What is in this image?"},
+            {"type":"image_url","image_url":{"url":")") +
+        kSamplePngDataUrl +
+        R"("}}
+        ]}]
+    })";
+
+    auto res = cli.Post("/v1/chat/completions", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    auto j = json::parse(res->body);
+    EXPECT_EQ(j["object"], "chat.completion");
+    EXPECT_NE(j["choices"][0]["message"]["content"].get<std::string>().find("Response to"),
+              std::string::npos);
+}
+
+TEST_F(OpenAIContractFixture, ChatCompletionsRejectsMissingImageUrl) {
+    httplib::Client cli("127.0.0.1", 18090);
+    std::string body = R"({
+        "model":"gpt-oss-7b",
+        "messages":[{"role":"user","content":[{"type":"image_url"}]}]
+    })";
+    auto res = cli.Post("/v1/chat/completions", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
 }
 
 TEST_F(OpenAIContractFixture, EmbeddingsReturnsVectorWithSingleInput) {
@@ -456,5 +494,26 @@ TEST_F(OpenAIContractFixture, ResponsesAcceptsArrayInput) {
     auto j = json::parse(res->body);
     EXPECT_EQ(j["object"], "response");
     EXPECT_NE(j["output"][0]["content"][0]["text"].get<std::string>().find("hello"),
+              std::string::npos);
+}
+
+TEST_F(OpenAIContractFixture, ResponsesAcceptsImageInput) {
+    httplib::Client cli("127.0.0.1", 18090);
+    std::string body = std::string(R"({
+        "model":"gpt-oss-7b",
+        "input":[{"role":"user","content":[
+            {"type":"input_text","text":"Describe this image"},
+            {"type":"input_image","image_url":{"url":")") +
+        kSamplePngDataUrl +
+        R"("}}
+        ]}]
+    })";
+
+    auto res = cli.Post("/v1/responses", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    auto j = json::parse(res->body);
+    EXPECT_EQ(j["object"], "response");
+    EXPECT_NE(j["output"][0]["content"][0]["text"].get<std::string>().find("Response to"),
               std::string::npos);
 }

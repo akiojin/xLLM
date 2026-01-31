@@ -326,6 +326,22 @@ bool is_safetensors_filename(const std::string& filename) {
     return lower;
 }
 
+bool is_bin_filename(const std::string& filename) {
+    return ends_with_case_insensitive(filename, ".bin");
+}
+
+bool allow_non_llm_safetensors() {
+    const char* env = std::getenv("XLLM_ALLOW_SAFETENSORS_NO_METADATA");
+    if (!env || !*env) return false;
+    return std::string(env) == "1" || std::string(env) == "true";
+}
+
+bool allow_bin_models() {
+    const char* env = std::getenv("XLLM_ALLOW_BIN_MODELS");
+    if (!env || !*env) return false;
+    return std::string(env) == "1" || std::string(env) == "true";
+}
+
 std::optional<std::string> infer_safetensors_index_from_shard(const std::string& filename) {
     if (is_safetensors_index_filename(filename)) {
         return std::nullopt;
@@ -374,6 +390,9 @@ bool has_sibling(const std::vector<std::string>& siblings, const std::string& fi
 }
 
 bool require_safetensors_metadata_files(const std::vector<std::string>& siblings) {
+    if (allow_non_llm_safetensors()) {
+        return true;
+    }
     return has_sibling(siblings, "config.json") && has_sibling(siblings, "tokenizer.json");
 }
 
@@ -908,7 +927,7 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
     }
 
     std::string selection;
-    enum class Format { Gguf, Safetensors };
+    enum class Format { Gguf, Safetensors, Bin };
     std::optional<Format> format;
 
     if (!filename_hint.empty()) {
@@ -921,7 +940,8 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             selection = filename_hint;
         } else if (is_safetensors_filename(filename_hint)) {
             if (!require_safetensors_metadata_files(siblings)) {
-                set_error("config.json and tokenizer.json are required for safetensors models");
+                set_error("config.json and tokenizer.json are required for safetensors models "
+                          "(set XLLM_ALLOW_SAFETENSORS_NO_METADATA=1 to override)");
                 return "";
             }
             std::string err;
@@ -932,16 +952,25 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             }
             format = Format::Safetensors;
             selection = *resolved;
+        } else if (is_bin_filename(filename_hint)) {
+            if (!allow_bin_models()) {
+                set_error("bin models are disabled (set XLLM_ALLOW_BIN_MODELS=1 to allow)");
+                return "";
+            }
+            format = Format::Bin;
+            selection = filename_hint;
         } else {
-            set_error("filename must be a .gguf or .safetensors file");
+            set_error("filename must be a .gguf, .safetensors, or .bin file");
             return "";
         }
     } else {
         std::vector<std::string> ggufs;
         std::vector<std::string> safetensors;
+        std::vector<std::string> bins;
         for (const auto& name : siblings) {
             if (is_gguf_filename(name)) ggufs.push_back(name);
             if (is_safetensors_filename(name)) safetensors.push_back(name);
+            if (is_bin_filename(name)) bins.push_back(name);
         }
         if (!ggufs.empty()) {
             if (ggufs.size() == 1) {
@@ -962,7 +991,8 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             }
         } else if (!safetensors.empty()) {
             if (!require_safetensors_metadata_files(siblings)) {
-                set_error("config.json and tokenizer.json are required for safetensors models");
+                set_error("config.json and tokenizer.json are required for safetensors models "
+                          "(set XLLM_ALLOW_SAFETENSORS_NO_METADATA=1 to override)");
                 return "";
             }
             std::string err;
@@ -973,8 +1003,20 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             }
             format = Format::Safetensors;
             selection = *resolved;
+        } else if (!bins.empty()) {
+            if (!allow_bin_models()) {
+                set_error("bin models are disabled (set XLLM_ALLOW_BIN_MODELS=1 to allow)");
+                return "";
+            }
+            if (bins.size() == 1) {
+                format = Format::Bin;
+                selection = bins.front();
+            } else {
+                set_error("Multiple .bin files found; specify filename");
+                return "";
+            }
         } else {
-            set_error("No supported model artifacts found (safetensors/gguf)");
+            set_error("No supported model artifacts found (safetensors/gguf/bin)");
             return "";
         }
     }
@@ -1058,6 +1100,9 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
         for (const auto& name : names) {
             push_file(name, build_hf_resolve_url(base_url, model_id, name));
         }
+    } else if (format && *format == Format::Bin) {
+        manifest["format"] = "bin";
+        push_file(selection, build_hf_resolve_url(base_url, model_id, selection));
     }
 
     if (!ok) {

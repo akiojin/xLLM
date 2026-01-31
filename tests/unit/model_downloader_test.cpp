@@ -92,6 +92,69 @@ public:
     std::thread thread;
 };
 
+class EnvGuard {
+public:
+    EnvGuard(const std::string& key, const std::string& value) : key_(key) {
+        const char* prev = std::getenv(key.c_str());
+        if (prev) {
+            had_prev_ = true;
+            prev_value_ = prev;
+        }
+#ifdef _WIN32
+        _putenv_s(key.c_str(), value.c_str());
+#else
+        setenv(key.c_str(), value.c_str(), 1);
+#endif
+    }
+
+    ~EnvGuard() {
+#ifdef _WIN32
+        if (had_prev_) {
+            _putenv_s(key_.c_str(), prev_value_.c_str());
+        } else {
+            _putenv_s(key_.c_str(), "");
+        }
+#else
+        if (had_prev_) {
+            setenv(key_.c_str(), prev_value_.c_str(), 1);
+        } else {
+            unsetenv(key_.c_str());
+        }
+#endif
+    }
+
+private:
+    std::string key_;
+    bool had_prev_{false};
+    std::string prev_value_;
+};
+
+class HfApiMinimalServer {
+public:
+    void start(int port) {
+        server.Get(R"(/api/models/acme/safetensors-no-meta)", [this](const httplib::Request&, httplib::Response& res) {
+            res.status = 200;
+            res.set_content(R"({"siblings":[{"rfilename":"model.safetensors"}]})", "application/json");
+        });
+        server.Get(R"(/api/models/acme/bin-only)", [this](const httplib::Request&, httplib::Response& res) {
+            res.status = 200;
+            res.set_content(R"({"siblings":[{"rfilename":"model.bin"}]})", "application/json");
+        });
+        thread = std::thread([this, port]() { server.listen("127.0.0.1", port); });
+        wait_for_server(server, std::chrono::seconds(5));
+    }
+
+    void stop() {
+        server.stop();
+        if (thread.joinable()) thread.join();
+    }
+
+    ~HfApiMinimalServer() { stop(); }
+
+    httplib::Server server;
+    std::thread thread;
+};
+
 class HfApiCacheServer {
 public:
     void start(int port) {
@@ -271,6 +334,82 @@ TEST(ModelDownloaderTest, FetchesHfManifestIncludesMmproj) {
     }
     EXPECT_TRUE(has_model);
     EXPECT_TRUE(has_mmproj);
+}
+
+TEST(ModelDownloaderTest, RejectsSafetensorsWithoutMetadataByDefault) {
+    HfApiMinimalServer server;
+    const int port = 18122;
+    server.start(port);
+
+    EnvGuard base_url("HF_BASE_URL", "http://127.0.0.1:" + std::to_string(port));
+
+    TempDir tmp;
+    ASSERT_FALSE(tmp.path.empty());
+
+    ModelDownloader dl("", tmp.path.string());
+    const std::string manifest_path = dl.fetchManifest("acme/safetensors-no-meta");
+
+    EXPECT_TRUE(manifest_path.empty());
+}
+
+TEST(ModelDownloaderTest, AllowsSafetensorsWithoutMetadataWhenEnabled) {
+    HfApiMinimalServer server;
+    const int port = 18123;
+    server.start(port);
+
+    EnvGuard base_url("HF_BASE_URL", "http://127.0.0.1:" + std::to_string(port));
+    EnvGuard allow("XLLM_ALLOW_SAFETENSORS_NO_METADATA", "1");
+
+    TempDir tmp;
+    ASSERT_FALSE(tmp.path.empty());
+
+    ModelDownloader dl("", tmp.path.string());
+    const std::string manifest_path = dl.fetchManifest("acme/safetensors-no-meta");
+
+    ASSERT_FALSE(manifest_path.empty());
+    std::ifstream ifs(manifest_path);
+    ASSERT_TRUE(ifs.is_open());
+    nlohmann::json j;
+    ifs >> j;
+    EXPECT_EQ(j.value("format", ""), "safetensors");
+}
+
+TEST(ModelDownloaderTest, RejectsBinModelsByDefault) {
+    HfApiMinimalServer server;
+    const int port = 18124;
+    server.start(port);
+
+    EnvGuard base_url("HF_BASE_URL", "http://127.0.0.1:" + std::to_string(port));
+
+    TempDir tmp;
+    ASSERT_FALSE(tmp.path.empty());
+
+    ModelDownloader dl("", tmp.path.string());
+    const std::string manifest_path = dl.fetchManifest("acme/bin-only");
+
+    EXPECT_TRUE(manifest_path.empty());
+}
+
+TEST(ModelDownloaderTest, AllowsBinModelsWhenEnabled) {
+    HfApiMinimalServer server;
+    const int port = 18125;
+    server.start(port);
+
+    EnvGuard base_url("HF_BASE_URL", "http://127.0.0.1:" + std::to_string(port));
+    EnvGuard allow("XLLM_ALLOW_BIN_MODELS", "1");
+
+    TempDir tmp;
+    ASSERT_FALSE(tmp.path.empty());
+
+    ModelDownloader dl("", tmp.path.string());
+    const std::string manifest_path = dl.fetchManifest("acme/bin-only");
+
+    ASSERT_FALSE(manifest_path.empty());
+    std::ifstream ifs(manifest_path);
+    ASSERT_TRUE(ifs.is_open());
+    nlohmann::json j;
+    ifs >> j;
+    EXPECT_EQ(j.value("format", ""), "bin");
 }
 
 TEST(ModelDownloaderTest, UsesHfMetadataCacheWhenNotModified) {
