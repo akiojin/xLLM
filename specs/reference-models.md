@@ -3,6 +3,11 @@
 This file defines the concrete model IDs to be used for mandatory verification/tests
 across xLLM specs. Update this list whenever required model families change.
 
+Official test targets:
+- Only the official repos listed below are valid for mandatory tests.
+- Do not use third-party reuploads for tests.
+- If an official repo provides GGUF, prefer that GGUF; otherwise use safetensors.
+
 Testing rule:
 - Model downloads for tests MUST use `xllm pull` (do not use direct downloads or custom scripts).
 - After each test, delete the model with `xllm rm <MODEL>` to avoid leaving large artifacts.
