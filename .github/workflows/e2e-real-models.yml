@@ -1,0 +1,60 @@
+name: E2E Real Models
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+concurrency:
+  group: e2e-real-models-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-models:
+    if: >-
+      vars.XLLM_E2E_TEXT_MODEL_REF != '' &&
+      vars.XLLM_E2E_VISION_MODEL_REF != '' &&
+      vars.XLLM_E2E_IMAGE_MODEL_REF != '' &&
+      vars.XLLM_E2E_ASR_MODEL_REF != '' &&
+      secrets.HF_TOKEN != '' &&
+      secrets.XLLM_VIBEVOICE_RUNNER != ''
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 180
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure build
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DPORTABLE_BUILD=ON \
+            -DBUILD_WITH_WHISPER=ON \
+            -DBUILD_WITH_SD=ON \
+            -DBUILD_WITH_ONNX=OFF
+
+      - name: Build xllm
+        run: cmake --build build --config Release --parallel
+
+      - name: Run real-model E2E
+        run: tests/e2e/real_models/run.sh
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          XLLM_E2E_TEXT_MODEL_REF: ${{ vars.XLLM_E2E_TEXT_MODEL_REF }}
+          XLLM_E2E_VISION_MODEL_REF: ${{ vars.XLLM_E2E_VISION_MODEL_REF }}
+          XLLM_E2E_IMAGE_MODEL_REF: ${{ vars.XLLM_E2E_IMAGE_MODEL_REF }}
+          XLLM_E2E_ASR_MODEL_REF: ${{ vars.XLLM_E2E_ASR_MODEL_REF }}
+          XLLM_E2E_TTS_MODEL: "vibevoice"
+          XLLM_VIBEVOICE_RUNNER: ${{ secrets.XLLM_VIBEVOICE_RUNNER }}
+          XLLM_VIBEVOICE_DEVICE: ${{ vars.XLLM_VIBEVOICE_DEVICE || 'mps' }}
+          XLLM_E2E_WORKDIR: ${{ runner.temp }}/xllm-e2e
+
+      - name: Upload E2E logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-real-models-logs
+          path: ${{ runner.temp }}/xllm-e2e/logs

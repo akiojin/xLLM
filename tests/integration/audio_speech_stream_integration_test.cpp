@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <httplib.h>
+#include <nlohmann/json.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -20,6 +22,51 @@
 namespace fs = std::filesystem;
 
 namespace {
+
+std::string makeWavData() {
+    const int sample_rate = 16000;
+    const int channels = 1;
+    const int bits_per_sample = 16;
+    const std::vector<int16_t> samples = {0, 1000, -1000, 0};
+
+    const uint32_t data_size = static_cast<uint32_t>(samples.size() * sizeof(int16_t));
+    const uint32_t file_size = 44 + data_size;
+
+    std::vector<uint8_t> wav;
+    wav.reserve(file_size);
+
+    auto append_u16 = [&wav](uint16_t value) {
+        wav.push_back(static_cast<uint8_t>(value & 0xFF));
+        wav.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+    };
+    auto append_u32 = [&wav](uint32_t value) {
+        wav.push_back(static_cast<uint8_t>(value & 0xFF));
+        wav.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+        wav.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
+        wav.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
+    };
+
+    wav.insert(wav.end(), {'R', 'I', 'F', 'F'});
+    append_u32(file_size - 8);
+    wav.insert(wav.end(), {'W', 'A', 'V', 'E'});
+    wav.insert(wav.end(), {'f', 'm', 't', ' '});
+    append_u32(16);
+    append_u16(1);
+    append_u16(static_cast<uint16_t>(channels));
+    append_u32(static_cast<uint32_t>(sample_rate));
+    append_u32(static_cast<uint32_t>(sample_rate * channels * (bits_per_sample / 8)));
+    append_u16(static_cast<uint16_t>(channels * (bits_per_sample / 8)));
+    append_u16(static_cast<uint16_t>(bits_per_sample));
+    wav.insert(wav.end(), {'d', 'a', 't', 'a'});
+    append_u32(data_size);
+
+    for (int16_t sample : samples) {
+        wav.push_back(static_cast<uint8_t>(sample & 0xFF));
+        wav.push_back(static_cast<uint8_t>((sample >> 8) & 0xFF));
+    }
+
+    return std::string(reinterpret_cast<const char*>(wav.data()), wav.size());
+}
 
 class TempDir {
 public:
@@ -64,6 +111,21 @@ protected:
                 result.audio_data.resize(256 * 1024);
                 for (size_t i = 0; i < result.audio_data.size(); ++i) {
                     result.audio_data[i] = static_cast<uint8_t>((i * 7) % 251);
+                }
+                return result;
+            });
+
+        audio_manager_.setTranscribeHookForTest(
+            [](const std::string&, const std::vector<float>& audio, int sample_rate,
+               const xllm::TranscriptionParams&) {
+                xllm::TranscriptionResult result;
+                result.success = true;
+                result.text = "integration asr";
+                result.language = "en";
+                if (sample_rate > 0) {
+                    result.duration_seconds = static_cast<double>(audio.size()) / sample_rate;
+                } else {
+                    result.duration_seconds = 1.0;
                 }
                 return result;
             });
@@ -127,4 +189,22 @@ TEST_F(AudioSpeechIntegrationFixture, StreamingSpeechDeliversMultipleChunks) {
     // チャンク化の確認（1回だけではないこと）
     EXPECT_GT(chunk_calls, 1u);
     EXPECT_GE(total_bytes, 256u * 1024u);
+}
+
+TEST_F(AudioSpeechIntegrationFixture, TranscriptionsReturnsJson) {
+    httplib::Client cli("127.0.0.1", 18097);
+    httplib::MultipartFormDataItems items = {
+        {"file", makeWavData(), "sample.wav", "audio/wav"},
+        {"model", "whisper-1", "", ""},
+        {"response_format", "json", "", ""},
+    };
+
+    auto res = cli.Post("/v1/audio/transcriptions", items);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(res->get_header_value("Content-Type"), "application/json");
+
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["text"], "integration asr");
+    EXPECT_EQ(j["language"], "en");
 }

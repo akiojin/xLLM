@@ -7,6 +7,7 @@
 #include <mutex>
 #include <chrono>
 #include <optional>
+#include <functional>
 
 // whisper.cpp forward declarations
 struct whisper_context;
@@ -56,6 +57,13 @@ public:
         int sample_rate,
         const TranscriptionParams& params = {});
 
+#ifdef XLLM_TESTING
+    /// テスト専用: transcribeの戻り値を差し替える
+    void setTranscribeHookForTest(
+        std::function<TranscriptionResult(
+            const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> hook);
+#endif
+
     // ロード済みモデル数
     size_t loadedCount() const;
 
@@ -97,6 +105,11 @@ private:
 
     // アクセス時刻追跡
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_access_;
+
+#ifdef XLLM_TESTING
+    std::function<TranscriptionResult(
+        const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> transcribe_hook_;
+#endif
 
     // 正規化されたパスを取得
     std::string canonicalizePath(const std::string& path) const;
