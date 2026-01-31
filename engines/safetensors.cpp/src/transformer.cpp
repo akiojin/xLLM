@@ -11,6 +11,7 @@
 
 #include "ggml_model.h"
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
@@ -113,21 +114,24 @@ static CausalMaskStorage& get_causal_mask_storage() {
 }
 
 static bool stcpp_nan_debug_enabled() {
-    static int enabled = -1;
-    if (enabled == -1) {
+    static std::atomic<int> enabled{-1};
+    int value = enabled.load(std::memory_order_acquire);
+    if (value == -1) {
         const char* env = std::getenv("STCPP_NAN_DEBUG");
-        enabled = (env && *env && std::strcmp(env, "0") != 0) ? 1 : 0;
+        const int computed = (env && *env && std::strcmp(env, "0") != 0) ? 1 : 0;
+        enabled.store(computed, std::memory_order_release);
+        value = computed;
     }
-    return enabled == 1;
+    return value == 1;
 }
 
 static bool stcpp_nan_debug_once() {
-    static bool done = false;
-    if (done) {
+    if (!stcpp_nan_debug_enabled()) {
         return false;
     }
-    done = true;
-    return true;
+    static std::atomic<bool> done{false};
+    bool expected = false;
+    return done.compare_exchange_strong(expected, true);
 }
 
 static bool stcpp_readback_has_nan(struct ggml_tensor* tensor, int64_t max_values, const char* label) {
