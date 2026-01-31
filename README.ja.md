@@ -1,6 +1,7 @@
 # xLLM
 
-ggml をバックエンドとする統合 C++ 推論エンジン。llama.cpp / whisper.cpp / stable-diffusion.cpp / safetensors.cpp を統合しています。
+ggml をバックエンドとする統合 C++ 推論エンジン。
+llama.cpp / whisper.cpp / stable-diffusion.cpp / safetensors.cpp を統合しています。
 
 ## 概要
 

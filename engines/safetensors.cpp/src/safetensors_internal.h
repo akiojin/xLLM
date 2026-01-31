@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
+#include <optional>
 #include <cstdint>
 #include <atomic>
 
@@ -102,6 +103,9 @@ struct TokenizerImpl {
 
     // Special tokens (e.g., <|im_start|>, <|im_end|>, etc.)
     std::unordered_set<std::string> special_tokens;
+
+    // Cache for GPT-2 byte encoding detection
+    mutable std::optional<bool> uses_gpt2_byte_encoding;
 };
 
 /* Chat message for template application */

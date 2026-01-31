@@ -12,6 +12,9 @@ servers:
   - url: http://localhost:8080
     description: ローカル開発サーバー
 
+security:
+  - bearerAuth: []
+
 paths:
   /v0/models/{model_id}/status:
     get:
@@ -117,6 +120,7 @@ components:
       properties:
         models:
           type: array
+          maxItems: 50
           items:
             $ref: '#/components/schemas/SupportedModel'
 
@@ -145,6 +149,7 @@ components:
           description: 必要VRAM（MB）
         tags:
           type: array
+          maxItems: 50
           items:
             type: string
           description: タグ一覧

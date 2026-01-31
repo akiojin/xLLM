@@ -35,7 +35,7 @@ GGUFの挙動は維持し、safetensors_cppエンジンでのみ量子化を扱�
 
 **言語/バージョン**: C++17
 **主要依存関係**:
-- safetensors.cpp（xllm/third_party）
+- safetensors.cpp（xllm/engines）
 - ggml（safetensors.cppの依存）
 - xllm core / engine registry
 **ストレージ**: ファイルシステム（モデルディレクトリ、manifest.json）

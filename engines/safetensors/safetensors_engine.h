@@ -72,6 +72,8 @@ public:
 
     uint64_t getModelVramBytes(const ModelDescriptor& descriptor) const override;
 
+    bool isModelLoaded(const std::string& model_name) const;
+
 private:
     struct LoadedModel {
         stcpp_model* model{nullptr};

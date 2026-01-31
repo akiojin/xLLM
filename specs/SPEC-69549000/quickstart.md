@@ -22,7 +22,7 @@ safetensors.cppを使用してsafetensors形式のLLMを推論する手順。
 ### サブモジュール取得
 
 ```bash
-cd node/third_party/safetensors.cpp
+cd node/engines/safetensors.cpp
 git submodule update --init --recursive
 ```
 

@@ -5,6 +5,7 @@
 #include "core/request_watchdog.h"
 #include "core/vision_processor.h"
 #include "core/kv_cache_utils.h"
+#include "core/harmony_utils.h"
 #include "include/llama.h"
 #include "models/model_descriptor.h"
 #include "models/model_resolver.h"
@@ -16,6 +17,9 @@
 #include "utils/stop_sequences.h"
 #include "runtime/state.h"
 #include "system/gpu_detector.h"
+#ifdef XLLM_WITH_SAFETENSORS
+#include "safetensors_engine.h"
+#endif
 
 #include <spdlog/spdlog.h>
 
@@ -441,52 +445,6 @@ std::string unsupported_quantization_message(const std::string& quantization,
            "' for runtime: " + descriptor.runtime;
 }
 
-// 制御トークンを除去してトリム
-static std::string stripControlTokens(std::string text) {
-    const std::vector<std::string> tokens = {
-        "<|start|>", "<|end|>", "<|message|>", "<|channel|>",
-        "<|return|>", "<|constrain|>",
-        "<|im_start|>", "<|im_end|>", "<s>", "</s>", "<|endoftext|>", "<|eot_id|>"
-    };
-    for (const auto& t : tokens) {
-        size_t pos = 0;
-        while ((pos = text.find(t, pos)) != std::string::npos) {
-            text.erase(pos, t.size());
-        }
-    }
-    auto l = text.find_first_not_of(" \t\n\r");
-    if (l == std::string::npos) return "";
-    auto r = text.find_last_not_of(" \t\n\r");
-    return text.substr(l, r - l + 1);
-}
-
-static std::string harmony_current_date() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-#if defined(_WIN32)
-    localtime_s(&tm, &t);
-#else
-    localtime_r(&t, &tm);
-#endif
-    char buf[11] = {0};
-    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm) == 0) {
-        return "1970-01-01";
-    }
-    return std::string(buf);
-}
-
-static std::string build_harmony_system_message() {
-    std::ostringstream oss;
-    oss << "<|start|>system<|message|>"
-        << "You are ChatGPT, a large language model trained by OpenAI.\n"
-        << "Knowledge cutoff: 2024-06\n"
-        << "Current date: " << harmony_current_date() << "\n\n"
-        << "Reasoning: low\n\n"
-        << "# Valid channels: analysis, commentary, final. Channel must be included for every message.\n"
-        << "<|end|>\n";
-    return oss.str();
-}
 
 // gpt-ossテンプレート（モデル側にテンプレが無い場合のフォールバック）。ユーザー入力は改変しない。
 static const char* GPT_OSS_TEMPLATE = R"tmpl({% for message in messages %}
@@ -499,8 +457,8 @@ static const char* GPT_OSS_TEMPLATE = R"tmpl({% for message in messages %}
 static std::string extractGptOssFinalMessage(const std::string& output) {
     const std::string end_token = "<|return|>";
     size_t endpos = output.find(end_token);
-    if (endpos == std::string::npos) return stripControlTokens(output);
-    return stripControlTokens(output.substr(0, endpos));
+    if (endpos == std::string::npos) return harmony::strip_control_tokens(output);
+    return harmony::strip_control_tokens(output.substr(0, endpos));
 }
 
 static std::string extractGptOssFinalChannel(const std::string& output) {
@@ -521,7 +479,7 @@ static std::string extractGptOssFinalChannel(const std::string& output) {
         stop = std::min(stop, return_pos);
     }
     if (stop < msg_pos) return "";
-    return stripControlTokens(output.substr(msg_pos, stop - msg_pos));
+    return harmony::strip_control_tokens(output.substr(msg_pos, stop - msg_pos));
 }
 
 // gpt-oss形式でプロンプトを構築する関数
@@ -529,7 +487,7 @@ static std::string extractGptOssFinalChannel(const std::string& output) {
 // 応答形式: <|start|>assistant<|channel|>final<|message|>content<|end|>
 static std::string buildGptOssPrompt(const std::vector<ChatMessage>& messages) {
     std::ostringstream oss;
-    oss << build_harmony_system_message();
+    oss << harmony::build_system_message();
 
     std::string developer_instructions;
     for (const auto& msg : messages) {
@@ -1480,6 +1438,34 @@ bool InferenceEngine::isModelSupported(const ModelDescriptor& descriptor) const 
     }
 
     return true;
+}
+
+bool InferenceEngine::isModelLoaded(const std::string& model_name) const {
+    if (!isInitialized()) {
+        return false;
+    }
+
+    auto desc = resolve_descriptor(model_storage_, model_name);
+    if (!desc) {
+        return false;
+    }
+
+    if (desc->runtime == "llama_cpp") {
+        return manager_ && manager_->isLoaded(desc->primary_path);
+    }
+
+#ifdef XLLM_WITH_SAFETENSORS
+    if (desc->runtime == "safetensors_cpp") {
+        std::string resolve_error;
+        Engine* engine = text_manager_ ? text_manager_->resolve(*desc, "text", &resolve_error) : nullptr;
+        auto* safetensors_engine = dynamic_cast<SafetensorsEngine*>(engine);
+        if (safetensors_engine) {
+            return safetensors_engine->isModelLoaded(desc->name);
+        }
+    }
+#endif
+
+    return false;
 }
 
 // T168: Format tool definitions for prompt embedding

@@ -17,7 +17,7 @@
 ### Setup
 
 - [x] 1. プロジェクトディレクトリ構造作成 `[P]`
-  - `node/third_party/safetensors.cpp/` 配下に構造を作成
+  - `node/engines/safetensors.cpp/` 配下に構造を作成
   - `include/`, `src/`, `examples/`, `tests/` ディレクトリ
 
 - [x] 2. ggmlサブモジュール追加 `[P]`

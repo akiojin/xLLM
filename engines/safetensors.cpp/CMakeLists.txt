@@ -91,7 +91,7 @@ target_include_directories(safetensors_cpp PUBLIC
 )
 if(NOT STCPP_STANDALONE)
     target_include_directories(safetensors_cpp PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../llama.cpp/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/llama.cpp/src
     )
 endif()
 target_link_libraries(safetensors_cpp

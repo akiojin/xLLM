@@ -16,7 +16,7 @@ For safetensors.cpp benchmark:
 
 ```bash
 # Build the benchmark tool
-cd node/third_party/safetensors.cpp
+cd node/engines/safetensors.cpp
 mkdir build && cd build
 cmake .. -DSTCPP_METAL=ON  # or -DSTCPP_CUDA=ON for NVIDIA
 make benchmark

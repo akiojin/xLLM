@@ -113,6 +113,10 @@ pub struct DownloadState {
     pub total_bytes: u64,
     /// ステータス
     pub status: DownloadStatus,
+    /// 失敗タイプ（任意）
+    pub error_type: Option<String>,
+    /// 失敗メッセージ（任意）
+    pub error_message: Option<String>,
 }
 
 /// ダウンロードステータス

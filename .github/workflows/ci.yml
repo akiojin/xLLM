@@ -96,4 +96,4 @@ jobs:
         with:
           version: 10.20.0
       - name: Run markdownlint
-        run: pnpm dlx markdownlint-cli2 "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!build"
+        run: pnpm dlx markdownlint-cli2 "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!engines/safetensors.cpp" "!build"

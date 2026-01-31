@@ -146,9 +146,10 @@ void ImageEndpoints::respondError(httplib::Response& res,
                                   const std::string& code,
                                   const std::string& message) {
     res.status = status;
+    const char* type = status >= 500 ? "internal_error" : "invalid_request_error";
     setJson(res, {{"error",
                    {{"message", message},
-                    {"type", "invalid_request_error"},
+                    {"type", type},
                     {"code", code}}}});
 }
 
@@ -404,7 +405,9 @@ void ImageEndpoints::handleGenerations(const httplib::Request& req,
             std::string url = storeImageAndGetUrl(req, result.image_data, error_message);
             if (url.empty()) {
                 spdlog::warn("Failed to store image: {}", error_message);
-                continue;
+                respondError(res, 500, "image_store_failed",
+                             "Failed to store generated image: " + error_message);
+                return;
             }
             image_obj["url"] = url;
         }
@@ -548,7 +551,9 @@ void ImageEndpoints::handleEdits(const httplib::Request& req,
             std::string url = storeImageAndGetUrl(req, result.image_data, error_message);
             if (url.empty()) {
                 spdlog::warn("Failed to store edited image: {}", error_message);
-                continue;
+                respondError(res, 500, "image_store_failed",
+                             "Failed to store edited image: " + error_message);
+                return;
             }
             image_obj["url"] = url;
         }
@@ -674,7 +679,9 @@ void ImageEndpoints::handleVariations(const httplib::Request& req,
             std::string url = storeImageAndGetUrl(req, result.image_data, error_message);
             if (url.empty()) {
                 spdlog::warn("Failed to store image variation: {}", error_message);
-                continue;
+                respondError(res, 500, "image_store_failed",
+                             "Failed to store image variation: " + error_message);
+                return;
             }
             image_obj["url"] = url;
         }

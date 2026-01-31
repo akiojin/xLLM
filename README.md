@@ -1,6 +1,7 @@
 # xLLM
 
-A unified C++ inference engine built on ggml, integrating llama.cpp, whisper.cpp, stable-diffusion.cpp, and safetensors.cpp.
+A unified C++ inference engine built on ggml, integrating llama.cpp,
+whisper.cpp, stable-diffusion.cpp, and safetensors.cpp.
 
 ## Overview
 

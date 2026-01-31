@@ -266,8 +266,8 @@ target_compile_definitions(cli_lib PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 # ============================================================================
 option(BUILD_WITH_SAFETENSORS "Build with safetensors.cpp support" ON)
 if(BUILD_WITH_SAFETENSORS)
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/safetensors.cpp/CMakeLists.txt")
-        message(WARNING "third_party/safetensors.cpp not found; disabling BUILD_WITH_SAFETENSORS")
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/engines/safetensors.cpp/CMakeLists.txt")
+        message(WARNING "engines/safetensors.cpp not found; disabling BUILD_WITH_SAFETENSORS")
         set(BUILD_WITH_SAFETENSORS OFF)
     endif()
 endif()
@@ -279,7 +279,7 @@ if(BUILD_WITH_SAFETENSORS)
     set(STCPP_ROCM ${BUILD_WITH_ROCM} CACHE BOOL "" FORCE)
     set(STCPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(STCPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    add_subdirectory(third_party/safetensors.cpp)
+    add_subdirectory(engines/safetensors.cpp)
 
     # safetensors engine sources are compiled into the xllm binary
 endif()
@@ -309,7 +309,7 @@ add_executable(xllm ${SOURCES})
 if(BUILD_WITH_SAFETENSORS)
     target_include_directories(xllm PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/engines/safetensors
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/safetensors.cpp/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/engines/safetensors.cpp/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nlohmann-json/include
     )
     target_link_libraries(xllm PRIVATE safetensors_cpp)
