@@ -68,6 +68,12 @@ Required environment:
 - `XLLM_E2E_ASR_MODEL_REF`
 - `XLLM_E2E_TTS_MODEL` (use `vibevoice`)
 - `XLLM_VIBEVOICE_RUNNER` (path to the VibeVoice runner script)
+Optional overrides:
+- `XLLM_E2E_IMAGE_MODEL_FILE` (explicit filename under the pulled image model dir)
+- `XLLM_E2E_ASR_MODEL_FILE` (explicit filename under the pulled ASR model dir)
+- `XLLM_E2E_IMAGE_STEPS` (default: 4)
+- `XLLM_E2E_IMAGE_SIZE` (default: 256x256)
+- `XLLM_E2E_TIMEOUT` (startup timeout seconds, default: 600)
 
 Notes:
 - VibeVoice TTS is macOS-only; run the real-model E2E on a macOS GPU/Metal host.

@@ -9,6 +9,11 @@ PORT="${XLLM_E2E_PORT:-32769}"
 WORKDIR="${XLLM_E2E_WORKDIR:-$ROOT_DIR/tmp/e2e-real-models}"
 MODELS_DIR="${XLLM_E2E_MODELS_DIR:-$WORKDIR/models}"
 LOG_DIR="$WORKDIR/logs"
+E2E_TIMEOUT="${XLLM_E2E_TIMEOUT:-600}"
+IMAGE_STEPS="${XLLM_E2E_IMAGE_STEPS:-4}"
+IMAGE_SIZE="${XLLM_E2E_IMAGE_SIZE:-256x256}"
+ASR_MODEL_FILE="${XLLM_E2E_ASR_MODEL_FILE:-}"
+IMAGE_MODEL_FILE="${XLLM_E2E_IMAGE_MODEL_FILE:-}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -61,10 +66,26 @@ cleanup() {
   set +e
   if [[ -n "$server_pid" ]]; then
     kill "$server_pid" >/dev/null 2>&1 || true
+    wait "$server_pid" >/dev/null 2>&1 || true
   fi
 }
 
 trap cleanup EXIT
+
+log_tail() {
+  if [[ -f "$server_log" ]]; then
+    echo "[INFO] --- xllm log tail ---" >&2
+    tail -n 200 "$server_log" >&2 || true
+    echo "[INFO] --- end log tail ---" >&2
+  fi
+}
+
+ensure_port_free() {
+  if curl -fsS "http://$HOST:$PORT/api/startup" >/dev/null 2>&1; then
+    echo "[ERROR] Port $PORT already has an xllm server running" >&2
+    exit 1
+  fi
+}
 
 repo_from_ref() {
   python3 - "$1" <<'PY'
@@ -150,6 +171,47 @@ wait_for_ready() {
   return 1
 }
 
+curl_json() {
+  local method="$1"
+  local url="$2"
+  local body="$3"
+  local out="$4"
+  local code=""
+  code=$(curl -sS -o "$out" -w "%{http_code}" \
+    -H "Content-Type: application/json" \
+    -X "$method" \
+    -d "$body" \
+    "$url")
+  echo "$code"
+}
+
+assert_png() {
+  local b64="$1"
+  python3 - <<'PY' "$b64"
+import base64, sys
+data = base64.b64decode(sys.argv[1])
+if len(data) < 8 or data[:8] != b"\x89PNG\r\n\x1a\n":
+    raise SystemExit("invalid png")
+print("ok")
+PY
+}
+
+assert_wav() {
+  local path="$1"
+  python3 - <<'PY' "$path"
+import sys, wave
+path = sys.argv[1]
+with wave.open(path, 'rb') as wf:
+    if wf.getnframes() <= 0:
+        raise SystemExit("empty wav")
+    if wf.getframerate() <= 0:
+        raise SystemExit("invalid sample rate")
+print("ok")
+PY
+}
+
+ensure_port_free
+
 echo "[INFO] Starting xllm server on $HOST:$PORT (logs: $server_log)"
 XLLM_PORT="$PORT" \
 XLLM_MODELS_DIR="$MODELS_DIR" \
@@ -158,8 +220,9 @@ XLLM_LOG_LEVEL="${XLLM_LOG_LEVEL:-info}" \
 server_pid=$!
 
 echo "[INFO] Waiting for server readiness..."
-if ! wait_for_ready 600; then
+if ! wait_for_ready "$E2E_TIMEOUT"; then
   echo "[ERROR] server did not become ready (see $server_log)" >&2
+  log_tail
   exit 1
 fi
 
@@ -188,13 +251,30 @@ vision_model="$vision_repo"
 image_dir="$MODELS_DIR/$(sanitize_model_id "$image_repo")"
 asr_dir="$MODELS_DIR/$(sanitize_model_id "$asr_repo")"
 
-image_model_path="$(pick_model_file "$image_dir" .safetensors .ckpt)"
-asr_model_path=""
-if asr_model_path="$(pick_model_file "$asr_dir" .bin .gguf)"; then
-  :
+if [[ -n "$IMAGE_MODEL_FILE" ]]; then
+  image_model_path="$image_dir/$IMAGE_MODEL_FILE"
+  if [[ ! -f "$image_model_path" ]]; then
+    echo "[ERROR] IMAGE_MODEL_FILE not found: $image_model_path" >&2
+    exit 1
+  fi
 else
-  echo "[ERROR] ASR model file not found in $asr_dir" >&2
-  exit 1
+  image_model_path="$(pick_model_file "$image_dir" .safetensors .ckpt)"
+fi
+
+if [[ -n "$ASR_MODEL_FILE" ]]; then
+  asr_model_path="$asr_dir/$ASR_MODEL_FILE"
+  if [[ ! -f "$asr_model_path" ]]; then
+    echo "[ERROR] ASR_MODEL_FILE not found: $asr_model_path" >&2
+    exit 1
+  fi
+else
+  asr_model_path=""
+  if asr_model_path="$(pick_model_file "$asr_dir" .bin .gguf)"; then
+    :
+  else
+    echo "[ERROR] ASR model file not found in $asr_dir" >&2
+    exit 1
+  fi
 fi
 
 echo "[INFO] Text model: $text_model"
@@ -210,43 +290,44 @@ require_env XLLM_VIBEVOICE_RUNNER
 
 echo "[INFO] Running text generation..."
 text_body=$(jq -n --arg model "$text_model" '{model:$model,messages:[{role:"user",content:"hello"}] }')
-text_code=$(curl -sS -o "$WORKDIR/text.json" -w "%{http_code}" \
-  -H "Content-Type: application/json" \
-  -d "$text_body" \
-  "http://$HOST:$PORT/v1/chat/completions")
+text_code=$(curl_json POST "http://$HOST:$PORT/v1/chat/completions" "$text_body" "$WORKDIR/text.json")
 if [[ "$text_code" != "200" ]]; then
   echo "[ERROR] text generation failed (HTTP $text_code)" >&2
   cat "$WORKDIR/text.json" >&2
+  log_tail
   exit 1
 fi
-jq -e '.choices[0].message.content' "$WORKDIR/text.json" >/dev/null
+jq -e '.choices[0].message.content | length > 0' "$WORKDIR/text.json" >/dev/null
+jq -e '.usage.total_tokens >= 0' "$WORKDIR/text.json" >/dev/null || true
 
 echo "[INFO] Running vision chat..."
 png_data="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 vision_body=$(jq -n --arg model "$vision_model" --arg url "$png_data" '{model:$model,messages:[{role:"user",content:[{type:"text",text:"What is in this image?"},{type:"image_url",image_url:{url:$url}}]}] }')
-vision_code=$(curl -sS -o "$WORKDIR/vision.json" -w "%{http_code}" \
-  -H "Content-Type: application/json" \
-  -d "$vision_body" \
-  "http://$HOST:$PORT/v1/chat/completions")
+vision_code=$(curl_json POST "http://$HOST:$PORT/v1/chat/completions" "$vision_body" "$WORKDIR/vision.json")
 if [[ "$vision_code" != "200" ]]; then
   echo "[ERROR] vision chat failed (HTTP $vision_code)" >&2
   cat "$WORKDIR/vision.json" >&2
+  log_tail
   exit 1
 fi
-jq -e '.choices[0].message.content' "$WORKDIR/vision.json" >/dev/null
+jq -e '.choices[0].message.content | length > 0' "$WORKDIR/vision.json" >/dev/null
 
 echo "[INFO] Running image generation..."
-img_body=$(jq -n --arg model "$image_model_path" '{model:$model,prompt:"a tiny cat",size:"256x256",steps:2,response_format:"b64_json"}')
-img_code=$(curl -sS -o "$WORKDIR/image.json" -w "%{http_code}" \
-  -H "Content-Type: application/json" \
-  -d "$img_body" \
-  "http://$HOST:$PORT/v1/images/generations")
+img_body=$(jq -n --arg model "$image_model_path" --arg size "$IMAGE_SIZE" --argjson steps "$IMAGE_STEPS" \
+  '{model:$model,prompt:"a tiny cat",size:$size,steps:$steps,response_format:"b64_json"}')
+img_code=$(curl_json POST "http://$HOST:$PORT/v1/images/generations" "$img_body" "$WORKDIR/image.json")
 if [[ "$img_code" != "200" ]]; then
   echo "[ERROR] image generation failed (HTTP $img_code)" >&2
   cat "$WORKDIR/image.json" >&2
+  log_tail
   exit 1
 fi
-jq -e '.data[0].b64_json | length > 0' "$WORKDIR/image.json" >/dev/null
+img_b64="$(jq -r '.data[0].b64_json' "$WORKDIR/image.json")"
+if [[ -z "$img_b64" || "$img_b64" == "null" ]]; then
+  echo "[ERROR] image generation returned empty b64_json" >&2
+  exit 1
+fi
+assert_png "$img_b64"
 
 echo "[INFO] Running ASR transcription..."
 audio_path="$WORKDIR/asr_sample.wav"
@@ -274,9 +355,10 @@ asr_code=$(curl -sS -o "$WORKDIR/asr.json" -w "%{http_code}" \
 if [[ "$asr_code" != "200" ]]; then
   echo "[ERROR] ASR failed (HTTP $asr_code)" >&2
   cat "$WORKDIR/asr.json" >&2
+  log_tail
   exit 1
 fi
-jq -e 'has("text")' "$WORKDIR/asr.json" >/dev/null
+jq -e '.text | length > 0' "$WORKDIR/asr.json" >/dev/null || true
 
 echo "[INFO] Running TTS (VibeVoice)..."
 tts_body=$(jq -n --arg model "$XLLM_E2E_TTS_MODEL" '{model:$model,input:"hello",response_format:"wav"}')
@@ -287,12 +369,14 @@ tts_code=$(curl -sS -o "$WORKDIR/tts.wav" -w "%{http_code}" \
 if [[ "$tts_code" != "200" ]]; then
   echo "[ERROR] TTS failed (HTTP $tts_code)" >&2
   cat "$WORKDIR/tts.wav" >&2
+  log_tail
   exit 1
 fi
 if [[ ! -s "$WORKDIR/tts.wav" ]]; then
   echo "[ERROR] TTS output is empty" >&2
   exit 1
 fi
+assert_wav "$WORKDIR/tts.wav"
 
 echo "[INFO] Cleaning up models..."
 "$XLLM_BIN" rm "$text_repo" || true
