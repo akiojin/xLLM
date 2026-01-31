@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -e
+
+if [ "${HUSKY:-}" = "0" ]; then
+  echo "HUSKY=0 is not allowed in this repo." >&2
+  exit 1
+fi
+
+# Lightweight check before commit
+bash .specify/scripts/checks/check-compile.sh

@@ -1,31 +1,43 @@
 # Development Guide
 
-Steps for working on this repository locally.
+Steps for working on xLLM locally.
 
 ## Prerequisites
 
-- Rust toolchain (stable)
-- CMake + C++20 compiler for xLLM
+- CMake + C++20 compiler
+- Git submodules
 - Docker (optional)
-- pnpm (for workspace tooling such as markdownlint)
-- npm (for mcp-server)
+- pnpm (optional, for markdownlint)
 
 ## Setup
+
 ```bash
-git clone https://github.com/akiojin/llmlb.git
-cd llmlb
-pnpm install --frozen-lockfile   # for lint tooling; node_modules already vendored
+git clone https://github.com/akiojin/xLLM.git
+cd xLLM
+git submodule update --init --recursive
 ```
 
-## Everyday Commands
+## Build & Test
 
-- Format/lint/test everything: `make quality-checks`
-- OpenAI-only tests: `make openai-tests`
-- Router dev run: `cargo run -p llmlb`
-- xLLM build: `npm run build:node`
-- xLLM run: `npm run start:node`
+```bash
+# Configure
+cmake -S . -B build -DBUILD_TESTS=ON -DPORTABLE_BUILD=ON
+
+# Build
+cmake --build build --config Release
+
+# Test
+ctest --output-on-failure --timeout 300 --verbose
+```
+
+## Run
+
+```bash
+./build/xllm serve
+```
 
 ## TDD Expectations
+
 1. Write a failing test (contract/integration first, then unit).
 2. Implement the minimum to make it pass.
 3. Refactor with tests green.
@@ -35,7 +47,7 @@ For gpt/nemotron/qwen/glm model families, verification is mandatory before merge
 Use the model verification suite or explicit E2E coverage and record results in the PR.
 
 - Model verification: `.specify/scripts/model-verification/run-verification.sh --model <path> --format <gguf|safetensors> --capability TextGeneration --platform <platform>`
-- E2E coverage: `LLM_TEST_MODEL=<model-id> npx bats tests/e2e/test-openai-api.bats`
+- Real-model E2E: `tests/e2e/real_models/run.sh` (see below)
 
 ## Real-model E2E (xLLM, all modalities)
 Contract/integration tests run with test hooks (no real weights). For real-model
@@ -60,37 +72,16 @@ Required environment:
 Notes:
 - VibeVoice TTS is macOS-only; run the real-model E2E on a macOS GPU/Metal host.
 - The GitHub Actions workflow `E2E Real Models` consumes the same env vars (set them as repo vars/secrets).
-
 ## Environment Variables
-- Router: `LLMLB_PORT`, `DATABASE_URL`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`,
-  `ANTHROPIC_API_KEY`.
-- xLLM: `LLMLB_URL`, `XLLM_PORT`, `LLM_ALLOW_NO_GPU=false`
-  by default.
 
-## Debugging Tips
-
-- Set `RUST_LOG=debug` for verbose load balancer output.
-- Dashboard stats endpoint `/v0/dashboard/stats` shows cloud key presence.
-- For cloud routing, confirm the key is logged as present at startup.
-
-## Token Statistics
-
-The load balancer tracks token usage for all requests (prompt_tokens, completion_tokens,
-total_tokens). Statistics are persisted to SQLite and available via dashboard API.
-
-- **Data source**: Node response `usage` field (preferred), tiktoken estimation (fallback)
-- **Streaming**: Tokens accumulated per chunk, final usage from last chunk
-- **API endpoints**: `/v0/dashboard/stats/tokens`, `/v0/dashboard/stats/tokens/daily`,
-  `/v0/dashboard/stats/tokens/monthly`
-- **Dashboard**: Statistics tab shows daily/monthly breakdown
+- `LLMLB_URL`: Optional. If set, xLLM registers itself to llmlb.
+- `XLLM_PORT`, `XLLM_BIND_ADDRESS`
+- `XLLM_MODELS_DIR`, `XLLM_CONFIG`, `XLLM_LOG_DIR`, `XLLM_LOG_LEVEL`, `XLLM_LOG_RETENTION_DAYS`
+- `XLLM_ORIGIN_ALLOWLIST`, `XLLM_PGP_VERIFY`, `HF_TOKEN`
+- `LLM_MODEL_IDLE_TIMEOUT`, `LLM_MAX_LOADED_MODELS`, `LLM_MAX_MEMORY_BYTES`
 
 ## Submodules
-- `xllm/third_party/stable-diffusion.cpp` is pinned to the public fork
-  `https://github.com/akiojin/stable-diffusion.cpp.git` to carry project-specific
-  crash/compatibility fixes.
-- Upstream (leejet/stable-diffusion.cpp) updates are synced manually on demand
-  (cherry-pick/merge into the fork) to keep control of breaking changes.
-- We do not plan to open upstream PRs for these changes unless explicitly requested.
-- Third-party OSS should be added as git submodules.
-- Do not modify submodule contents directly. If changes are required, use a fork
-  and update the submodule pointer.
+
+- `third_party/stable-diffusion.cpp` is pinned to a public fork for project-specific fixes.
+- Upstream updates are synced manually on demand.
+- Do not modify submodule contents directly. Use forks and update submodule pointers.
