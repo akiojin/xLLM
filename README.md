@@ -1,6 +1,26 @@
 # xLLM
 
-C++ inference engine based on llama.cpp and companion runtimes (whisper.cpp, stable-diffusion.cpp, safetensors.cpp).
+A unified C++ inference engine built on ggml, integrating llama.cpp, whisper.cpp, stable-diffusion.cpp, and safetensors.cpp.
+
+## Overview
+
+xLLM provides a single inference runtime supporting multiple model formats and modalities:
+
+| Engine | Format | Modality |
+|--------|--------|----------|
+| **llama.cpp** | GGUF | Text generation |
+| **safetensors.cpp** | Safetensors | Text generation |
+| **whisper.cpp** | GGUF | Speech-to-text |
+| **stable-diffusion.cpp** | GGUF / Safetensors | Image generation |
+
+All engines share the **ggml** backend, enabling consistent hardware support:
+
+- **Metal** (Apple Silicon)
+- **CUDA** (NVIDIA)
+- **ROCm** (AMD)
+- **Vulkan**
+- **SYCL** (Intel)
+- **CPU**
 
 This project can run standalone or register itself to llmlb as an endpoint.
 

@@ -1,6 +1,27 @@
 # xLLM
 
-llama.cpp 互換のC++推論エンジン（whisper.cpp / stable-diffusion.cpp / safetensors.cpp 連携）。
+ggml をバックエンドとする統合 C++ 推論エンジン。llama.cpp / whisper.cpp / stable-diffusion.cpp / safetensors.cpp を統合しています。
+
+## 概要
+
+xLLM は複数のモデルフォーマットとモダリティをサポートする単一の推論ランタイムです。
+
+| エンジン | フォーマット | モダリティ |
+|---------|-------------|-----------|
+| **llama.cpp** | GGUF | テキスト生成 |
+| **safetensors.cpp** | Safetensors | テキスト生成 |
+| **whisper.cpp** | GGUF | 音声認識 |
+| **stable-diffusion.cpp** | GGUF / Safetensors | 画像生成 |
+
+全エンジンは **ggml** バックエンドを共有し、統一されたハードウェアサポートを提供します:
+
+- **Metal** (Apple Silicon)
+- **CUDA** (NVIDIA)
+- **ROCm** (AMD)
+- **Vulkan**
+- **SYCL** (Intel)
+- **CPU**
+
 単体で動作し、必要に応じて llmlb のエンドポイントとして登録できます。
 
 ## クイックスタート
