@@ -1,26 +1,40 @@
 # CLAUDE.md
 
-このリポジトリは xLLM（C++推論エンジン）専用です。
+このリポジトリは xLLM（ggml ベースの統合 C++ 推論エンジン）専用です。
 
 ## まず読む
 
-- 目的: llama.cppベースのxLLMランタイムを単体で提供する
+- 目的: 複数のモデルフォーマット・モダリティを単一ランタイムで提供する
 - ドキュメント: `README.md` → `DEVELOPMENT.md` → `specs/`
 - 依存: `third_party/` はサブモジュール管理（直接編集禁止）
+
+## アーキテクチャ
+
+```
+xLLM
+├── llama.cpp        (GGUF → テキスト生成)
+├── safetensors.cpp  (Safetensors → テキスト生成)
+├── whisper.cpp      (GGUF → 音声認識)
+├── stable-diffusion.cpp (GGUF/Safetensors → 画像生成)
+└── ggml             (共通バックエンド)
+```
+
+**ハードウェア対応** (ggml経由で全エンジン共通):
+- Metal / CUDA / ROCm / Vulkan / SYCL / CPU
 
 ## ディレクトリ構成
 
 ```
 .
-├── src
-├── include
-├── tests
-├── engines
-├── third_party
-├── specs
-├── docs
-├── scripts
-└── templates
+├── src           # メインソース
+├── include       # ヘッダ
+├── tests         # テスト
+├── engines       # エンジン実装
+├── third_party   # サブモジュール (llama.cpp, whisper.cpp, etc.)
+├── specs         # 仕様書
+├── docs          # ドキュメント
+├── scripts       # ユーティリティスクリプト
+└── templates     # テンプレート
 ```
 
 ## 開発ルール
