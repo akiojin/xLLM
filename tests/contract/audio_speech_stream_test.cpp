@@ -210,6 +210,37 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsJson) {
     EXPECT_EQ(j["language"], "en");
 }
 
+TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsText) {
+    httplib::Client cli("127.0.0.1", 18096);
+    httplib::MultipartFormDataItems items = {
+        {"file", makeWavData(), "sample.wav", "audio/wav"},
+        {"model", "whisper-1", "", ""},
+        {"response_format", "text", "", ""},
+    };
+
+    auto res = cli.Post("/v1/audio/transcriptions", items);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(res->get_header_value("Content-Type"), "text/plain");
+    EXPECT_NE(res->body.find("hello from asr"), std::string::npos);
+}
+
+TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsSrt) {
+    httplib::Client cli("127.0.0.1", 18096);
+    httplib::MultipartFormDataItems items = {
+        {"file", makeWavData(), "sample.wav", "audio/wav"},
+        {"model", "whisper-1", "", ""},
+        {"response_format", "srt", "", ""},
+    };
+
+    auto res = cli.Post("/v1/audio/transcriptions", items);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(res->get_header_value("Content-Type"), "text/plain");
+    EXPECT_NE(res->body.find("00:00:00"), std::string::npos);
+    EXPECT_NE(res->body.find("hello from asr"), std::string::npos);
+}
+
 TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsVtt) {
     httplib::Client cli("127.0.0.1", 18096);
     httplib::MultipartFormDataItems items = {
@@ -224,4 +255,44 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsVtt) {
     EXPECT_EQ(res->get_header_value("Content-Type"), "text/vtt");
     EXPECT_NE(res->body.find("WEBVTT"), std::string::npos);
     EXPECT_NE(res->body.find("hello from asr"), std::string::npos);
+}
+
+TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsMissingFile) {
+    httplib::Client cli("127.0.0.1", 18096);
+    httplib::MultipartFormDataItems items = {
+        {"model", "whisper-1", "", ""},
+    };
+
+    auto res = cli.Post("/v1/audio/transcriptions", items);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["error"]["code"], "missing_file");
+}
+
+TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsMissingModel) {
+    httplib::Client cli("127.0.0.1", 18096);
+    httplib::MultipartFormDataItems items = {
+        {"file", makeWavData(), "sample.wav", "audio/wav"},
+    };
+
+    auto res = cli.Post("/v1/audio/transcriptions", items);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["error"]["code"], "missing_model");
+}
+
+TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsEmptyFile) {
+    httplib::Client cli("127.0.0.1", 18096);
+    httplib::MultipartFormDataItems items = {
+        {"file", "", "sample.wav", "audio/wav"},
+        {"model", "whisper-1", "", ""},
+    };
+
+    auto res = cli.Post("/v1/audio/transcriptions", items);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["error"]["code"], "empty_file");
 }

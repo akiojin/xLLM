@@ -14,6 +14,7 @@ IMAGE_STEPS="${XLLM_E2E_IMAGE_STEPS:-4}"
 IMAGE_SIZE="${XLLM_E2E_IMAGE_SIZE:-256x256}"
 ASR_MODEL_FILE="${XLLM_E2E_ASR_MODEL_FILE:-}"
 IMAGE_MODEL_FILE="${XLLM_E2E_IMAGE_MODEL_FILE:-}"
+STREAMING_TESTS="${XLLM_E2E_STREAMING:-1}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -300,6 +301,23 @@ fi
 jq -e '.choices[0].message.content | length > 0' "$WORKDIR/text.json" >/dev/null
 jq -e '.usage.total_tokens >= 0' "$WORKDIR/text.json" >/dev/null || true
 
+if [[ "$STREAMING_TESTS" == "1" ]]; then
+  echo "[INFO] Running text streaming..."
+  stream_body=$(jq -n --arg model "$text_model" '{model:$model,messages:[{role:"user",content:"stream"}],stream:true }')
+  stream_code=$(curl -sS -o "$WORKDIR/text_stream.txt" -w "%{http_code}" \
+    -H "Content-Type: application/json" \
+    -d "$stream_body" \
+    "http://$HOST:$PORT/v1/chat/completions")
+  if [[ "$stream_code" != "200" ]]; then
+    echo "[ERROR] text streaming failed (HTTP $stream_code)" >&2
+    cat "$WORKDIR/text_stream.txt" >&2
+    log_tail
+    exit 1
+  fi
+  grep -q "data:" "$WORKDIR/text_stream.txt"
+  grep -q "\\[DONE\\]" "$WORKDIR/text_stream.txt"
+fi
+
 echo "[INFO] Running vision chat..."
 png_data="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 vision_body=$(jq -n --arg model "$vision_model" --arg url "$png_data" '{model:$model,messages:[{role:"user",content:[{type:"text",text:"What is in this image?"},{type:"image_url",image_url:{url:$url}}]}] }')
@@ -311,6 +329,23 @@ if [[ "$vision_code" != "200" ]]; then
   exit 1
 fi
 jq -e '.choices[0].message.content | length > 0' "$WORKDIR/vision.json" >/dev/null
+
+if [[ "$STREAMING_TESTS" == "1" ]]; then
+  echo "[INFO] Running responses streaming..."
+  resp_stream_body=$(jq -n --arg model "$text_model" '{model:$model,input:"stream",stream:true }')
+  resp_stream_code=$(curl -sS -o "$WORKDIR/response_stream.txt" -w "%{http_code}" \
+    -H "Content-Type: application/json" \
+    -d "$resp_stream_body" \
+    "http://$HOST:$PORT/v1/responses")
+  if [[ "$resp_stream_code" != "200" ]]; then
+    echo "[ERROR] responses streaming failed (HTTP $resp_stream_code)" >&2
+    cat "$WORKDIR/response_stream.txt" >&2
+    log_tail
+    exit 1
+  fi
+  grep -q "response.output_text.delta" "$WORKDIR/response_stream.txt"
+  grep -q "response.completed" "$WORKDIR/response_stream.txt"
+fi
 
 echo "[INFO] Running image generation..."
 img_body=$(jq -n --arg model "$image_model_path" --arg size "$IMAGE_SIZE" --argjson steps "$IMAGE_STEPS" \

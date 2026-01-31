@@ -30,6 +30,18 @@ cmake --build build --config Release
 ctest --output-on-failure --timeout 300 --verbose
 ```
 
+One-shot local run (build + tests, optional E2E):
+
+```bash
+scripts/run-local-tests.sh
+```
+
+Run with E2E:
+
+```bash
+XLLM_RUN_E2E=1 scripts/run-local-tests.sh
+```
+
 ## Run
 
 ```bash
@@ -74,6 +86,7 @@ Optional overrides:
 - `XLLM_E2E_IMAGE_STEPS` (default: 4)
 - `XLLM_E2E_IMAGE_SIZE` (default: 256x256)
 - `XLLM_E2E_TIMEOUT` (startup timeout seconds, default: 600)
+- `XLLM_E2E_STREAMING` (default: 1; set 0 to skip streaming checks)
 
 Notes:
 - VibeVoice TTS is macOS-only; run the real-model E2E on a macOS GPU/Metal host.
