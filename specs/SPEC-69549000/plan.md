@@ -80,7 +80,7 @@ specs/SPEC-69549000/
 ### ソースコード (リポジトリルート)
 
 ```text
-node/third_party/safetensors.cpp/
+node/engines/safetensors.cpp/
 ├── ggml/                      # サブモジュール（ggml本家）
 ├── include/
 │   └── safetensors.h          # 公開C API (stcpp_* prefix)

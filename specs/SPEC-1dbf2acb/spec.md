@@ -83,7 +83,7 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **メタデータキャッシュ**: モデルメタデータをキャッシュして高速化
 - **対応形式**: llama.cppがサポートする全形式（GGUF、AWQ、GPTQ、EXL2等）+ safetensors
 - **エンジン選択**: ファイル形式で自動判定（GGUF→llama.cpp、それ以外→safetensors.cpp）
-  - safetensors.cppは `vendor/safetensors.cpp` を使用（ggmlバックエンド）
+  - safetensors.cppは `engines/safetensors.cpp` を使用（ggmlバックエンド）
 - **ローカルファイル**: `xllm run /path/to/model.gguf` で直接指定可能
 - **複数バリアント**: 同一モデルの異なる量子化を同時ロード可能
 - **モデルレプリカ**: 同一モデルを複数インスタンスでロード可能
