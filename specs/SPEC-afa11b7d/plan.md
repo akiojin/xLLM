@@ -4,7 +4,8 @@
 **入力**: `/specs/SPEC-afa11b7d/spec.md` の機能仕様
 
 ## 実行フロー (/speckit.plan コマンドのスコープ)
-```
+
+```text
 1. 入力パスから機能仕様を読み込み
 2. 技術コンテキストを記入
 3. 憲章チェックセクションを評価
@@ -21,12 +22,14 @@ safetensors形式モデルに対して量子化設定を指定・適用できる
 GGUFの挙動は維持し、safetensors_cppエンジンでのみ量子化を扱う。
 
 **主要要件**:
+
 - safetensorsモデル向けの量子化方式を指定できる
 - 量子化の状態を一覧/詳細で確認できる
 - 未対応の量子化は明確なエラーで拒否する
 - GGUFの挙動は変更しない
 
 **技術アプローチ**:
+
 - safetensors.cppの量子化機構に合わせた設定をxllm側で受け渡す
 - 量子化の指定経路（CLI/API/設定）を整理し、モデルメタデータに反映する
 - 既存のsafetensors_cppエンジンのロードフローに量子化設定を統合する
@@ -35,36 +38,43 @@ GGUFの挙動は維持し、safetensors_cppエンジンでのみ量子化を扱�
 
 **言語/バージョン**: C++17
 **主要依存関係**:
+
 - safetensors.cpp（xllm/third_party）
 - ggml（safetensors.cppの依存）
 - xllm core / engine registry
+
 **ストレージ**: ファイルシステム（モデルディレクトリ、manifest.json）
 **テスト**: xllm unit/integration/contract テスト
 **対象プラットフォーム**: macOS (Metal), Windows/Linux (CUDA), Linux (ROCm), Vulkan
 **プロジェクトタイプ**: single（xllm）
 **パフォーマンス目標**: 量子化によりVRAM使用量を低減し、推論成功率を上げる
 **制約**:
+
 - safetensors_cppはGPUバックエンド必須（CPUは非対応）
 - 量子化導入でGGUFの動作を変更しない
 - 量子化方式の未対応は明確に拒否
+
 **スケール/スコープ**: safetensorsモデルの量子化対応に限定
 
 ## 憲章チェック
 *ゲート: Phase 0 research前に合格必須。Phase 1 design後に再チェック。*
 
 **シンプルさ**:
+
 - プロジェクト数: 1（xllm）
 - フレームワークを直接使用? ✅ Yes（既存のsafetensors_cppエンジン）
 - 単一データモデル? ✅ Yes（既存のModelDescriptor/metadataを拡張）
 - パターン回避? ✅ Yes（新規レイヤー追加を避ける）
 
 **アーキテクチャ**:
+
 - すべての機能をライブラリとして? ✅ Yes（xllmエンジン内）
 - ライブラリリスト: xllm（safetensors_cpp, model_storage, inference_engine）
 - ライブラリごとのCLI: xllm CLI（既存）
 - ライブラリドキュメント: specs/SPEC-afa11b7d/
 
 **テスト (妥協不可)**:
+
 - RED-GREEN-Refactorサイクルを強制? ✅ Yes
 - Gitコミットはテストが実装より先に表示? ✅ Yes
 - 順序: Contract→Integration→E2E→Unitを厳密に遵守? ✅ Yes
@@ -73,17 +83,20 @@ GGUFの挙動は維持し、safetensors_cppエンジンでのみ量子化を扱�
 - 禁止: テスト前の実装、REDフェーズのスキップ ✅
 
 **可観測性**:
+
 - 構造化ロギング含む? ✅ Yes（既存ログ）
 - エラーコンテキスト十分? ✅ Yes（量子化未対応理由を明示）
 
 **バージョニング**:
+
 - バージョン番号割り当て済み? ✅ Yes（既存のリリースフロー）
 - 破壊的変更を処理? ✅ Yes（既存APIの互換性維持）
 
 ## プロジェクト構造
 
 ### ドキュメント (この機能)
-```
+
+```text
 specs/SPEC-afa11b7d/
 ├── spec.md              # 機能仕様
 ├── plan.md              # このファイル (/speckit.plan)
@@ -96,7 +109,8 @@ specs/SPEC-afa11b7d/
 ```
 
 ### ソースコード (リポジトリルート)
-```
+
+```text
 xllm/
 ├── engines/safetensors/         # safetensors_cppエンジン
 ├── src/models/model_storage.cpp # モデル解決とメタデータ
