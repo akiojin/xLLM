@@ -130,33 +130,43 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
         body["name"] = model_name;
         body["stream"] = true;
 
+        std::string pending;
+        std::string stream_error;
+
         auto res = client.Post(
             "/api/models/pull",
             httplib::Headers{},
             body.dump(),
             "application/json",
-            [&progress_cb](const char* data, size_t len) -> bool {
-                if (!progress_cb) return true;
+            [&progress_cb, &pending, &stream_error](const char* data, size_t len) -> bool {
+                pending.append(data, len);
 
-                std::string chunk(data, len);
+                size_t newline = std::string::npos;
+                while ((newline = pending.find('\n')) != std::string::npos) {
+                    std::string line = pending.substr(0, newline);
+                    pending.erase(0, newline + 1);
 
-                // Parse NDJSON progress updates
-                std::istringstream stream(chunk);
-                std::string line;
-                while (std::getline(stream, line)) {
-                    if (line.empty()) continue;
+                    if (line.empty()) {
+                        continue;
+                    }
                     try {
                         auto json = nlohmann::json::parse(line);
-                        uint64_t completed = json.value("completed", static_cast<uint64_t>(0));
-                        uint64_t total = json.value("total", static_cast<uint64_t>(0));
-
-                        // Calculate speed (approximation)
-                        double speed = 0.0;
-                        if (json.contains("speed")) {
-                            speed = json["speed"].get<double>();
+                        if (json.contains("error") && json["error"].is_string() && stream_error.empty()) {
+                            stream_error = json["error"].get<std::string>();
                         }
 
-                        progress_cb(completed, total, speed);
+                        if (progress_cb && (json.contains("completed") || json.contains("total"))) {
+                            uint64_t completed = json.value("completed", static_cast<uint64_t>(0));
+                            uint64_t total = json.value("total", static_cast<uint64_t>(0));
+
+                            // Calculate speed (approximation)
+                            double speed = 0.0;
+                            if (json.contains("speed")) {
+                                speed = json["speed"].get<double>();
+                            }
+
+                            progress_cb(completed, total, speed);
+                        }
                     } catch (...) {
                         // Ignore parse errors in progress stream
                     }
@@ -174,6 +184,11 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
                 } catch (...) {
                     response.error_message = res->body;
                 }
+                return response;
+            }
+            if (!stream_error.empty()) {
+                response.error = CliError::GeneralError;
+                response.error_message = stream_error;
                 return response;
             }
             response.error = CliError::Success;
