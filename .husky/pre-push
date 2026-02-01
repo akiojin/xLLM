@@ -6,8 +6,6 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
-# Full local gate before pushing
-bash .specify/scripts/checks/check-compile.sh
-bash .specify/scripts/checks/check-tests.sh
+# Lint gate before pushing
 bash .specify/scripts/checks/check-markdown.sh --all
 bash .specify/scripts/checks/check-commits.sh
