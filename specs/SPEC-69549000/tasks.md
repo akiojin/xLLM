@@ -60,7 +60,7 @@
 
 ## Phase 2: safetensorsローダー
 
-### Tests First (RED)
+### Tests First (RED) - Phase 2
 
 - [x] 11. safetensorsパーサーテスト (依存: 6)
   - ヘッダー解析テスト
@@ -75,7 +75,7 @@
   - index.json解析テスト
   - 複数ファイル結合テスト
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 2
 
 - [x] 14. safetensors.hヘッダー作成 (依存: 3)
   - contracts/c-api.mdに基づく型定義
@@ -97,7 +97,7 @@
 
 ## Phase 3: トークナイザー
 
-### Tests First (RED)
+### Tests First (RED) - Phase 3
 
 - [x] 18. tokenizer.json解析テスト (依存: 6)
   - vocab読み込みテスト
@@ -113,7 +113,7 @@
   - Jinja2テンプレート解析
   - メッセージフォーマット適用
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 3
 
 - [x] 21. tokenizer.cpp実装 (依存: 18, 19, 14)
   - tokenizer.json解析
@@ -127,7 +127,7 @@
 
 ## Phase 4: 推論エンジン（MVP）
 
-### Tests First (RED)
+### Tests First (RED) - Phase 4
 
 - [x] 23. モデルロード統合テスト (依存: 17, 21)
   - config.json読み込みテスト
@@ -143,7 +143,7 @@
   - 推論キャンセルテスト
   - 部分結果取得テスト
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 4
 
 - [x] 26. config.jsonローダー実装 (依存: 23, 14)
   - ModelConfig構造体パース
@@ -171,7 +171,7 @@
 
 ## Phase 5: KVキャッシュ
 
-### Tests First (RED)
+### Tests First (RED) - Phase 5
 
 - [x] 31. KVキャッシュテスト (依存: 29)
   - キャッシュ割り当てテスト
@@ -183,7 +183,7 @@
   - キャッシュ読み込みテスト
   - 再利用効果測定
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 5
 
 - [x] 33. kv-cache.cpp実装 (依存: 31)
   - KVキャッシュ管理
@@ -196,14 +196,14 @@
 
 ## Phase 6: バッチ処理
 
-### Tests First (RED)
+### Tests First (RED) - Phase 6
 
 - [x] 35. バッチ処理テスト (依存: 29)
   - 複数リクエスト追加テスト
   - バッチデコードテスト
   - リクエストキャンセルテスト
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 6
 
 - [x] 36. batch.cpp実装 (依存: 35)
   - stcpp_batch_new()
@@ -213,14 +213,14 @@
 
 ## Phase 7: 埋め込み
 
-### Tests First (RED)
+### Tests First (RED) - Phase 7
 
 - [x] 37. 埋め込みテスト (依存: 29)
   - 埋め込み生成テスト
   - 次元数確認テスト
   - バッチ埋め込みテスト
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 7
 
 - [x] 38. 埋め込み実装 (依存: 37)
   - stcpp_embeddings()
@@ -228,14 +228,14 @@
 
 ## Phase 8: LoRA
 
-### Tests First (RED)
+### Tests First (RED) - Phase 8
 
 - [x] 39. LoRAテスト (依存: 29)
   - LoRAロードテスト
   - LoRA適用テスト
   - ホットリロードテスト
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 8
 
 - [x] 40. lora.cpp実装 (依存: 39)
   - stcpp_lora_load()
@@ -244,7 +244,7 @@
 
 ## Phase 9: Nemotron 3アーキテクチャ（Mamba-Transformer MoE ハイブリッド）
 
-### Tests First (RED)
+### Tests First (RED) - Phase 9
 
 - [x] 41. Mamba State Space Modelテスト (依存: 29)
   - Mambaレイヤーの順伝播テスト
@@ -264,7 +264,7 @@
   - 統合推論パイプラインテスト
   - tests/unit/mamba_transformer_hybrid_test.cpp 作成（SKIP）
 
-### Implementation (GREEN)
+### Implementation (GREEN) - Phase 9
 
 - [x] 44. Mamba State Space Model実装 (依存: 41)
   - src/mamba.h, src/mamba.cpp - Mamba SSMレイヤー
@@ -384,4 +384,5 @@
 
 **✅ MVP達成**: 単一GPUでのsafetensorsモデル推論 + ストリーミング出力 + Nemotron 3対応
 
-Note: safetensors.cppはggmlバックエンドを直接使用するアーキテクチャ非依存の設計。Phase 9でNemotron 3（Mamba-Transformer MoE ハイブリッド）対応を完了しました。
+Note: safetensors.cppはggmlバックエンドを直接使用するアーキテクチャ非依存の設計。
+Phase 9でNemotron 3（Mamba-Transformer MoE ハイブリッド）対応を完了しました。

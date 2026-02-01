@@ -54,10 +54,14 @@
 
 ## Phase 3.2: テストファースト (TDD) ⚠️ 3.3の前に完了必須
 
-重要: これらのテストは記述され、実装前に失敗する必要がある
+### 重要
 
-- [ ] T004 [P] tests/contract/test_users_post.py に POST /v0/users の contract test
-- [ ] T005 [P] tests/contract/test_users_get.py に GET /v0/users/{id} の contract test
+これらのテストは記述され、実装前に失敗する必要がある。
+
+- [ ] T004 [P] tests/contract/test_users_post.py に
+  POST /v0/users の contract test
+- [ ] T005 [P] tests/contract/test_users_get.py に
+  GET /v0/users/{id} の contract test
 - [ ] T006 [P] tests/integration/test_registration.py にユーザー登録の integration test
 - [ ] T007 [P] tests/integration/test_auth.py に認証フローの integration test
 
@@ -112,7 +116,7 @@ Task: "tests/integration/test_auth.py に認証の integration test"
 
 ## タスク生成ルール
 
-適用タイミング: main()実行中
+### main() 実行中に適用
 
 1. **Contractsから**:
    - 各contractファイル → contract testタスク [P]
@@ -132,7 +136,9 @@ Task: "tests/integration/test_auth.py に認証の integration test"
 
 ## 検証チェックリスト
 
-ゲート: 戻る前にmain()でチェック
+### ゲート
+
+戻る前にmain()でチェックする。
 
 - [ ] すべてのcontractsに対応するテストがある
 - [ ] すべてのentitiesにmodelタスクがある

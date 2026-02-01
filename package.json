@@ -1,0 +1,15 @@
+{
+  "name": "xllm",
+  "private": true,
+  "devDependencies": {
+    "@commitlint/cli": "^19.4.1",
+    "@commitlint/config-conventional": "^19.4.1",
+    "husky": "^9.1.7",
+    "markdownlint-cli2": "^0.13.0"
+  },
+  "scripts": {
+    "prepare": "husky install",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules\" \"!.git\" \"!.github\" \"!.worktrees\" \"!third_party\" \"!build\"",
+    "lint:commits": ".specify/scripts/checks/check-commits.sh"
+  }
+}

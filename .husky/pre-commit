@@ -6,5 +6,5 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
-# Lightweight check before commit
-bash .specify/scripts/checks/check-compile.sh
+# Fast checks before commit
+bash .specify/scripts/checks/check-markdown.sh

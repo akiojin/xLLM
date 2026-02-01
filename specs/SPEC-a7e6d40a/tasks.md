@@ -21,7 +21,9 @@
 
 ## Phase 3.2: テストファースト (TDD)
 
-**重要: これらのテストは記述され、実装前に失敗する必要がある**
+### 重要
+
+これらのテストは記述され、実装前に失敗する必要がある。
 
 - [x] T005-T010 `llmlb/tests/cli_tests.rs` にCLIパーステストを統合
   - `--help` / `--version` 表示テスト
@@ -105,11 +107,13 @@
   - CLI user コマンドの使用例を追加
   - 環境変数 `LLMLB_ADMIN_PASSWORD` / `LLMLB_JWT_SECRET` を記載
 - [x] T032 [P] `INSTALL.md` を更新
-  - 新しい環境変数名を表形式で記載（Load Balancer: LLMLB_*, Node: XLLM_*）
+  - 新しい環境変数名を表形式で記載
+    （Load Balancer: LLMLB_*, Node: XLLM_*）
 - [x] T033 [P] `README.md` を更新
   - 環境変数セクションを更新済み
 - [x] T034 すべてのテストを実行して合格を確認
-  - Load Balancer: `cargo test` (121 tests) / `cargo clippy -- -D warnings` / `cargo fmt --check` ✓
+  - Load Balancer: `cargo test` (121 tests) /
+    `cargo clippy -- -D warnings` / `cargo fmt --check` ✓
   - Node: 91 unit tests ✓
 - [x] T035 手動テスト実行
   - `xllm --help` → 環境変数一覧表示 ✓

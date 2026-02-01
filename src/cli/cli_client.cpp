@@ -137,7 +137,7 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
             httplib::Headers{},
             body.dump(),
             "application/json",
-            [&progress_cb, &pending](const char* data, size_t len) -> bool {
+            [&progress_cb, &pending, &stream_error](const char* data, size_t len) -> bool {
                 if (!progress_cb) return true;
 
                 pending.append(data, len);
@@ -153,16 +153,22 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
                     if (line.empty()) continue;
                     try {
                         auto json = nlohmann::json::parse(line);
-                        uint64_t completed = json.value("completed", static_cast<uint64_t>(0));
-                        uint64_t total = json.value("total", static_cast<uint64_t>(0));
-
-                        // Calculate speed (approximation)
-                        double speed = 0.0;
-                        if (json.contains("speed")) {
-                            speed = json["speed"].get<double>();
+                        if (json.contains("error") && json["error"].is_string() && stream_error.empty()) {
+                            stream_error = json["error"].get<std::string>();
                         }
 
-                        progress_cb(completed, total, speed);
+                        if (progress_cb && (json.contains("completed") || json.contains("total"))) {
+                            uint64_t completed = json.value("completed", static_cast<uint64_t>(0));
+                            uint64_t total = json.value("total", static_cast<uint64_t>(0));
+
+                            // Calculate speed (approximation)
+                            double speed = 0.0;
+                            if (json.contains("speed")) {
+                                speed = json["speed"].get<double>();
+                            }
+
+                            progress_cb(completed, total, speed);
+                        }
                     } catch (...) {
                         // Ignore parse errors in progress stream
                     }
