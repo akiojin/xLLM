@@ -11,6 +11,8 @@ if git rev-parse --verify -q origin/feature/download-progress >/dev/null; then
   BASE_REF="origin/feature/download-progress"
 elif git rev-parse --verify -q origin/develop >/dev/null; then
   BASE_REF="origin/develop"
+elif git rev-parse --verify -q origin/main >/dev/null; then
+  BASE_REF="origin/main"
 fi
 
 if [ -z "$BASE_REF" ]; then
@@ -18,6 +20,12 @@ if [ -z "$BASE_REF" ]; then
   exit 0
 fi
 
-# Lint gate before pushing (only changed markdown)
-bash .specify/scripts/checks/check-markdown.sh --range "${BASE_REF}..HEAD"
+# Match CI: lint all Markdown and check commit messages in range.
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm lint:md
+else
+  echo "Error: pnpm not found. Please install Node.js and pnpm." >&2
+  exit 1
+fi
+
 bash .specify/scripts/checks/check-commits.sh --from "$BASE_REF" --to HEAD
