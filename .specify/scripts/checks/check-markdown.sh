@@ -58,6 +58,9 @@ collect_files() {
         continue
         ;;
     esac
+    if [[ ! -f "$file" ]]; then
+      continue
+    fi
     FILES+=("$file")
   done
 }
@@ -67,7 +70,7 @@ if [[ "$MODE" == "range" ]]; then
     echo "Error: --range requires a git range" >&2
     exit 2
   fi
-  collect_files < <(git diff --name-only "$RANGE" | rg -i '\.md$' || true)
+  collect_files < <(git diff --name-only --diff-filter=AM "$RANGE" | rg -i '\.md$' || true)
 else
   collect_files < <(git diff --cached --name-only --diff-filter=ACM | rg -i '\.md$' || true)
 fi
