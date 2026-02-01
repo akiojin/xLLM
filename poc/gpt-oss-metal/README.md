@@ -2,7 +2,9 @@
 
 このPoCは、`openai/gpt-oss-20b` を **llmlb + xllm (Metal)** で実際にロードして `chat/completions` が返ることを確認します。
 
-このPoCの推論は safetensors を直接ロードするのではなく、Hugging Face の `metal/model.bin`（Routerでは `model.metal.bin` としてキャッシュ）を gpt-oss Metal エンジンで実行します。
+このPoCの推論は safetensors を直接ロードするのではなく、Hugging Face の
+`metal/model.bin`（Routerでは `model.metal.bin` としてキャッシュ）を
+gpt-oss Metal エンジンで実行します。
 
 ## 前提
 

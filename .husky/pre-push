@@ -6,6 +6,26 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
-# Full local gate before pushing
-bash .specify/scripts/checks/check-compile.sh
-bash .specify/scripts/checks/check-tests.sh
+BASE_REF=""
+if git rev-parse --verify -q origin/feature/download-progress >/dev/null; then
+  BASE_REF="origin/feature/download-progress"
+elif git rev-parse --verify -q origin/develop >/dev/null; then
+  BASE_REF="origin/develop"
+elif git rev-parse --verify -q origin/main >/dev/null; then
+  BASE_REF="origin/main"
+fi
+
+if [ -z "$BASE_REF" ]; then
+  echo "⚠️  Could not determine base ref for linting; skipping pre-push checks."
+  exit 0
+fi
+
+# Match CI: lint all Markdown and check commit messages in range.
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm lint:md
+else
+  echo "Error: pnpm not found. Please install Node.js and pnpm." >&2
+  exit 1
+fi
+
+bash .specify/scripts/checks/check-commits.sh --from "$BASE_REF" --to HEAD

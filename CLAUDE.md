@@ -10,7 +10,7 @@
 
 ## アーキテクチャ
 
-```
+```text
 xLLM
 ├── llama.cpp        (GGUF → テキスト生成)
 ├── safetensors.cpp  (Safetensors → テキスト生成)
@@ -20,11 +20,12 @@ xLLM
 ```
 
 **ハードウェア対応** (ggml経由で全エンジン共通):
+
 - Metal / CUDA / ROCm / Vulkan / SYCL / CPU
 
 ## ディレクトリ構成
 
-```
+```text
 .
 ├── src           # メインソース
 ├── include       # ヘッダ

@@ -3,23 +3,35 @@
 **機能ID**: `SPEC-69549000`
 **作成日**: 2026-01-06
 **ステータス**: 実装完了
-**入力**: ユーザー説明: "safetensors.cpp: llama.cpp/stable-diffusion.cpp/whisper.cppと同様の独立C++プロジェクト。ggmlバックエンドを利用し、safetensors形式のLLM（gpt-oss、Nemotron 3含む）をMetal/CUDA/ROCm/Vulkanで推論可能にする。"
+**入力**: ユーザー説明: "safetensors.cpp: llama.cpp/stable-diffusion.cpp/whisper.cppと同様の
+独立C++プロジェクト。ggmlバックエンドを利用し、safetensors形式のLLM（gpt-oss、
+Nemotron 3含む）をMetal/CUDA/ROCm/Vulkanで推論可能にする。"
 
 ## ユーザーシナリオ＆テスト
 
 ### ユーザーストーリー1 - safetensors形式のモデルで推論を実行したい (優先度: P1)
 
-開発者として、HuggingFaceで公開されているsafetensors形式のLLMモデルを、GGUFに変換することなく直接読み込んで推論を実行したい。これにより、モデル変換の手間を省き、最新のモデルをすぐに利用できるようになる。
+開発者として、HuggingFaceで公開されているsafetensors形式のLLMモデルを、
+GGUFに変換することなく直接読み込んで推論を実行したい。これにより、
+モデル変換の手間を省き、最新のモデルをすぐに利用できるようになる。
 
-**この優先度の理由**: safetensors形式はHuggingFaceの標準フォーマットであり、多くの最新モデルがこの形式で公開されている。GGUF変換なしで直接利用できることが本プロジェクトの核心的な価値である。
+**この優先度の理由**: safetensors形式はHuggingFaceの標準フォーマットであり、
+多くの最新モデルがこの形式で公開されている。GGUF変換なしで直接利用できることが
+本プロジェクトの核心的な価値である。
 
-**独立テスト**: safetensorsファイルを読み込み、テキスト生成を実行することで完全にテスト可能。モデル変換なしでの推論という価値を提供する。
+**独立テスト**: safetensorsファイルを読み込み、テキスト生成を実行することで
+完全にテスト可能。モデル変換なしでの推論という価値を提供する。
 
 **受け入れシナリオ**:
 
-1. **前提** OpenAI公式のgpt-oss-20b safetensorsモデル（openai/gpt-oss-20b, MoE + MXFP4）、**実行** モデルをロードしてプロンプトを入力、**結果** テキストが生成される
-2. **前提** NVIDIA公式のNemotron 3 safetensorsモデル（nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16）、**実行** モデルをロードしてプロンプトを入力、**結果** テキストが生成される
-3. **前提** 分割されたsafetensors（model-00001-of-00005.safetensors等）、**実行** index.jsonを解析してロード、**結果** 全テンソルが正しく読み込まれる
+1. **前提** OpenAI公式のgpt-oss-20b safetensorsモデル
+   （openai/gpt-oss-20b, MoE + MXFP4）、**実行** モデルをロードして
+   プロンプトを入力、**結果** テキストが生成される
+2. **前提** NVIDIA公式のNemotron 3 safetensorsモデル
+   （nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16）、**実行** モデルを
+   ロードしてプロンプトを入力、**結果** テキストが生成される
+3. **前提** 分割されたsafetensors（model-00001-of-00005.safetensors等）、
+   **実行** index.jsonを解析してロード、**結果** 全テンソルが正しく読み込まれる
 4. **前提** 不正なsafetensorsファイル、**実行** モデルをロード、**結果** 明確なエラーメッセージで失敗する
 
 **重要**: テストは公式が配布するsafetensors版モデルを使用すること。サードパーティのGGUF変換版でのテストは不十分。
@@ -207,14 +219,16 @@
 必ずここに**追記**し、READMEにも反映すること。
 
 | アーキテクチャ | 状態 | 実装根拠 | 備考 |
-|--------------|------|----------|------|
-| **gpt-oss (MoE + MXFP4)** | 実装済み | `third_party/safetensors.cpp/src/ggml_model.cpp`, `third_party/safetensors.cpp/src/transformer.cpp` | `mlp.router.*` / `mlp.experts.*_(blocks\|scales\|bias)` の読み込みとMoE forwardを含む |
-| **nemotron3 (Mamba-Transformer MoE)** | 実装済み（未統合） | `third_party/safetensors.cpp/src/arch/nemotron3.*`, `mamba.*`, `moe.*`, `gqa.*` | forwardパスとの統合が未実施 |
+| ------------- | ---- | -------- | ---- |
+| **gpt-oss (MoE + MXFP4)** | 実装済み | ggml_model.cpp など | MoE forward / MXFP4 |
+| **nemotron3 (Mamba/MoE)** | 実装済み（未統合） | arch/nemotron3.* など | forward統合未実施 |
 
 **備考**:
 
-- `model_type`/`architectures` の検出は実装済みだが、専用の重みマッピングや forward パスがないアーキテクチャは**対応と見なさない**。
-- 対応対象を増やす場合は、専用のテンソル名マッピング・forwardパス・E2E検証をセットで追加する。
+- `model_type`/`architectures` の検出は実装済みだが、専用の重みマッピングや
+  forward パスがないアーキテクチャは**対応と見なさない**。
+- 対応対象を増やす場合は、専用のテンソル名マッピング・forwardパス・E2E検証を
+  セットで追加する。
 
 ### 将来候補（未対応）
 
@@ -287,67 +301,86 @@
 ## 設計方針（インタビュー結果）
 
 ### safetensorsローダー
+
 - stable-diffusion.cppの実装（model.cpp内のinit_from_safetensors_file）を参考に移植
 - メモリマップドI/O（mmap）で高速ロードをサポート
 
 ### ggmlバージョン
+
 - ggml本家リポジトリ（<https://github.com/ggml-org/ggml>）のmainに追従
 - Attention実装はggml標準を使用（Flash Attentionは当面不要）
 
 ### KVキャッシュ
+
 - llama.cppのKVキャッシュ実装を参考に実装
 - KVキャッシュのINT8/FP8量子化をサポート
 
 ### サンプリング
+
 - llama.cppのサンプリング実装を参考に実装
 
 ### エラーハンドリング
+
 - llama.cppのコールバック方式を採用
 
 ### スレッドセーフティ
+
 - 全てのAPIを完全スレッドセーフで設計
 
 ### C API
+
 - プレフィックス: `stcpp_*`
 - ビルドシステム: CMakeのみ
 
 ### テストモデル
+
 - HuggingFaceのテスト用小型モデル（Tiny系）を利用
 
 ### ベンチマーク
+
 - HuggingFace transformers（Python）との比較で性能を評価
 
 ### ドキュメント
+
 - llama.cpp級の充実したドキュメントを目指す（APIリファレンス、チュートリアル、例示コード）
 
 ### Runtime統合
+
 - 既存のマネージャ方式（SPEC-d7feaa2c）に準拠
 
 ### リポジトリ
+
 - 当面はnode/third_party/内で開発、将来的に個人アカウントで別リポジトリ化
 
 ### MVP定義
+
 - 単一GPUでのgpt-oss-20b推論 + ストリーミング出力が動作すること
 
 ### LoRA/QLoRA
+
 - LoRAアダプターのロードと推論時適用をサポート
 - 動的ホットリロード（推論停止なしでアダプター切り替え）をサポート
 
 ### チャットテンプレート
+
 - tokenizer_config.jsonのchat_template（Jinja2形式）を解析
 - llama.cppのテンプレートエンジンを参考に実装
 
 ### マルチGPU
+
 - Pipeline Parallelism（レイヤー単位でGPU分割）を採用
 - Tensor Parallelismは将来検討
 
 ### プロンプトキャッシュ
+
 - システムプロンプトやRAGコンテキストのKVキャッシュを再利用
 - セッション間でキャッシュを共有可能
 
 ### プリフィル最適化
+
 - プロンプト処理の並列化でTTFT（Time To First Token）を短縮
 
 ### Visionモデル
+
 - LLaVA、Qwen-VL等の画像入力対応は将来実装予定
 - 画像エンコーダーのマネージャ拡張を想定

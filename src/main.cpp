@@ -4,12 +4,15 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <filesystem>
 #include <optional>
 #include <algorithm>
 #include <cctype>
+#include <mutex>
+#include <unordered_map>
 #include <nlohmann/json.hpp>
 
 #include "system/gpu_detector.h"
@@ -401,12 +404,16 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
             try {
                 std::string requested;
                 std::string filename_hint;
+                bool stream = false;
                 auto body = nlohmann::json::parse(req.body, nullptr, false);
                 if (!body.is_discarded()) {
                     if (body.contains("name") && body["name"].is_string()) {
                         requested = body["name"].get<std::string>();
                     } else if (body.contains("model") && body["model"].is_string()) {
                         requested = body["model"].get<std::string>();
+                    }
+                    if (body.contains("stream") && body["stream"].is_boolean()) {
+                        stream = body["stream"].get<bool>();
                     }
                 }
 
@@ -424,6 +431,220 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
                     filename_hint = ref->filename;
                     spdlog::info("Received model pull request: {}{}", model_id,
                                  filename_hint.empty() ? "" : " (" + filename_hint + ")");
+
+                    if (stream) {
+                        const std::string model_id_copy = model_id;
+                        const std::string filename_copy = filename_hint;
+                        res.set_header("Content-Type", "application/x-ndjson");
+                        res.set_chunked_content_provider(
+                            "application/x-ndjson",
+                            [model_id_copy, filename_copy, model_sync, &model_storage, &registry, &engine](size_t offset, httplib::DataSink& sink) mutable {
+                                if (offset != 0) {
+                                    return true;
+                                }
+
+                                struct FileProgress {
+                                    uint64_t downloaded{0};
+                                    uint64_t total{0};
+                                };
+
+                                struct StreamState {
+                                    std::unordered_map<std::string, FileProgress> files;
+                                    uint64_t downloaded_all{0};
+                                    uint64_t total_all{0};
+                                    bool done{false};
+                                    bool ok{false};
+                                    std::string error;
+                                };
+
+                                StreamState state;
+                                std::mutex mu;
+
+                                auto update_progress = [&](const std::string& file, size_t downloaded, size_t total) {
+                                    std::lock_guard<std::mutex> lock(mu);
+                                    auto& fp = state.files[file];
+                                    if (downloaded >= fp.downloaded) {
+                                        state.downloaded_all += (downloaded - fp.downloaded);
+                                    } else {
+                                        uint64_t delta = fp.downloaded - downloaded;
+                                        state.downloaded_all = (state.downloaded_all > delta) ? (state.downloaded_all - delta) : 0;
+                                    }
+                                    fp.downloaded = downloaded;
+
+                                    if (total > 0 && total != fp.total) {
+                                        if (fp.total > 0) {
+                                            state.total_all = (state.total_all > fp.total) ? (state.total_all - fp.total) : 0;
+                                        }
+                                        fp.total = total;
+                                        state.total_all += total;
+                                    }
+                                };
+
+                                auto finalize_file = [&](const std::string& file) {
+                                    std::lock_guard<std::mutex> lock(mu);
+                                    auto& fp = state.files[file];
+                                    if (fp.total == 0 && fp.downloaded > 0) {
+                                        fp.total = fp.downloaded;
+                                        state.total_all += fp.total;
+                                    }
+                                    if (fp.total > 0 && fp.downloaded < fp.total) {
+                                        state.downloaded_all += (fp.total - fp.downloaded);
+                                        fp.downloaded = fp.total;
+                                    }
+                                };
+
+                                xllm::DownloadCallbacks callbacks;
+                                callbacks.on_manifest = [&](const std::vector<std::string>& files_list) {
+                                    std::lock_guard<std::mutex> lock(mu);
+                                    for (const auto& file : files_list) {
+                                        state.files.emplace(file, FileProgress{});
+                                    }
+                                };
+                                callbacks.on_progress = [&](const std::string& file, size_t downloaded, size_t total) {
+                                    update_progress(file, downloaded, total);
+                                };
+                                callbacks.on_complete = [&](const std::string& file, bool success) {
+                                    if (success) {
+                                        finalize_file(file);
+                                    }
+                                };
+
+                                std::thread worker([&]() {
+                                    try {
+                                        xllm::ModelDownloader downloader("", model_sync->getModelsDir());
+                                        bool ok = model_sync->downloadModel(
+                                            downloader,
+                                            model_id_copy,
+                                            callbacks,
+                                            filename_copy
+                                        );
+                                        std::string err;
+                                        if (!ok) {
+                                            err = downloader.getLastError();
+                                            if (err.empty()) {
+                                                err = "download failed";
+                                            }
+                                        }
+                                        {
+                                            std::lock_guard<std::mutex> lock(mu);
+                                            state.ok = ok;
+                                            state.error = err;
+                                            state.done = true;
+                                        }
+                                    } catch (const std::exception& e) {
+                                        {
+                                            std::lock_guard<std::mutex> lock(mu);
+                                            state.ok = false;
+                                            state.error = e.what();
+                                            state.done = true;
+                                        }
+                                    } catch (...) {
+                                        {
+                                            std::lock_guard<std::mutex> lock(mu);
+                                            state.ok = false;
+                                            state.error = "download failed";
+                                            state.done = true;
+                                        }
+                                    }
+                                });
+
+                                auto last_emit = std::chrono::steady_clock::now();
+                                uint64_t last_emit_bytes = 0;
+
+                                auto emit_progress = [&](bool force, const std::string& error_msg) -> bool {
+                                    auto now = std::chrono::steady_clock::now();
+                                    if (!force && now - last_emit < std::chrono::milliseconds(200)) {
+                                        return true;
+                                    }
+                                    uint64_t completed = 0;
+                                    uint64_t total = 0;
+                                    {
+                                        std::lock_guard<std::mutex> lock(mu);
+                                        completed = state.downloaded_all;
+                                        total = state.total_all;
+                                    }
+                                    if (total > 0 && total < completed) {
+                                        total = completed;
+                                    }
+                                    double speed = 0.0;
+                                    double elapsed = std::chrono::duration<double>(now - last_emit).count();
+                                    if (elapsed > 0.0 && completed >= last_emit_bytes) {
+                                        speed = static_cast<double>(completed - last_emit_bytes) / elapsed;
+                                    }
+                                    last_emit = now;
+                                    last_emit_bytes = completed;
+
+                                    nlohmann::json j;
+                                    j["completed"] = completed;
+                                    j["total"] = total;
+                                    if (speed > 0.0) {
+                                        j["speed"] = speed;
+                                    }
+                                    if (!error_msg.empty()) {
+                                        j["error"] = error_msg;
+                                    }
+
+                                    std::string line = j.dump();
+                                    line.push_back('\n');
+                                    return sink.write(line.data(), line.size());
+                                };
+
+                                bool disconnected = false;
+                                while (true) {
+                                    bool done = false;
+                                    bool ok = false;
+                                    std::string err;
+                                    {
+                                        std::lock_guard<std::mutex> lock(mu);
+                                        done = state.done;
+                                        ok = state.ok;
+                                        err = state.error;
+                                    }
+                                    if (done) {
+                                        if (ok) {
+                                            {
+                                                std::lock_guard<std::mutex> lock(mu);
+                                                if (state.total_all > 0 && state.downloaded_all < state.total_all) {
+                                                    state.downloaded_all = state.total_all;
+                                                }
+                                            }
+                                            auto local_descriptors = model_storage.listAvailableDescriptors();
+                                            std::vector<std::string> local_model_names;
+                                            local_model_names.reserve(local_descriptors.size());
+                                            for (const auto& desc : local_descriptors) {
+                                                if (!engine.isModelSupported(desc)) {
+                                                    continue;
+                                                }
+                                                local_model_names.push_back(desc.name);
+                                            }
+                                            registry.setModels(local_model_names);
+                                            spdlog::info("Model pull completed, {} models available", local_model_names.size());
+                                        }
+                                        if (!emit_progress(true, err)) {
+                                            disconnected = true;
+                                        }
+                                        break;
+                                    }
+
+                                    if (!emit_progress(false, "")) {
+                                        disconnected = true;
+                                        break;
+                                    }
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                                }
+
+                                if (worker.joinable()) {
+                                    worker.join();
+                                }
+
+                                if (disconnected) {
+                                    return false;
+                                }
+                                sink.done();
+                                return true;
+                            });
+                        return;
+                    }
 
                     xllm::ModelDownloader downloader("", model_sync->getModelsDir());
                     bool ok = model_sync->downloadModel(downloader, model_id, {}, filename_hint);
