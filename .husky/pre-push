@@ -22,9 +22,11 @@ fi
 
 # Match CI: lint all Markdown and check commit messages in range.
 if command -v pnpm >/dev/null 2>&1; then
-  pnpm lint:md
+  pnpm dlx markdownlint-cli2@0.13.0 "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!build"
+elif command -v npx >/dev/null 2>&1; then
+  npx -y markdownlint-cli2@0.13.0 "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!build"
 else
-  echo "Error: pnpm not found. Please install Node.js and pnpm." >&2
+  echo "Error: pnpm or npx not found. Please install Node.js and pnpm/npm." >&2
   exit 1
 fi
 
@@ -33,6 +35,12 @@ bash .specify/scripts/checks/check-commits.sh --from "$BASE_REF" --to HEAD
 if command -v cmake >/dev/null 2>&1; then
   cmake -S . -B build -DBUILD_TESTS=ON -DPORTABLE_BUILD=ON
   cmake --build build --config Release
+  if command -v ctest >/dev/null 2>&1; then
+    ctest --output-on-failure --timeout 300 --verbose
+  else
+    echo "Error: ctest not found. Please install CMake." >&2
+    exit 1
+  fi
 else
   echo "Error: cmake not found. Please install CMake." >&2
   exit 1

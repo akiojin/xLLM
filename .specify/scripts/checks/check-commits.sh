@@ -60,11 +60,15 @@ echo ""
 # commitlintの存在確認
 run_commitlint() {
     if command -v pnpm >/dev/null 2>&1; then
-        pnpm exec commitlint --verbose
+        pnpm dlx --package @commitlint/cli@19.4.1 \
+            --package @commitlint/config-conventional@19.4.1 \
+            commitlint --verbose
         return
     fi
     if command -v npx >/dev/null 2>&1; then
-        npx --no-install commitlint --verbose
+        npx -y --package @commitlint/cli@19.4.1 \
+            --package @commitlint/config-conventional@19.4.1 \
+            commitlint --verbose
         return
     fi
     echo "Error: pnpm or npx not found. Please install Node.js and pnpm/npm." >&2
