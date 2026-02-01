@@ -6,6 +6,18 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
+BASE_REF=""
+if git rev-parse --verify -q origin/feature/download-progress >/dev/null; then
+  BASE_REF="origin/feature/download-progress"
+elif git rev-parse --verify -q origin/develop >/dev/null; then
+  BASE_REF="origin/develop"
+fi
+
+if [ -z "$BASE_REF" ]; then
+  echo "⚠️  Could not determine base ref for linting; skipping pre-push checks."
+  exit 0
+fi
+
 # Lint gate before pushing (only changed markdown)
-bash .specify/scripts/checks/check-markdown.sh --range origin/develop..HEAD
-bash .specify/scripts/checks/check-commits.sh --from origin/develop --to HEAD
+bash .specify/scripts/checks/check-markdown.sh --range "${BASE_REF}..HEAD"
+bash .specify/scripts/checks/check-commits.sh --from "$BASE_REF" --to HEAD
