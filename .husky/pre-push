@@ -6,6 +6,6 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
-# Lint gate before pushing
-bash .specify/scripts/checks/check-markdown.sh --all
-bash .specify/scripts/checks/check-commits.sh
+# Lint gate before pushing (only changed markdown)
+bash .specify/scripts/checks/check-markdown.sh --range origin/develop..HEAD
+bash .specify/scripts/checks/check-commits.sh --from origin/develop --to HEAD

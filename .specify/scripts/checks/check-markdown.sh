@@ -3,16 +3,31 @@
 # check-markdown.sh - markdownlint (markdownlint-cli2) check
 #
 # Usage:
-#   check-markdown.sh [--all]
+#   check-markdown.sh [--all] [--range <range>]
 #
 # Defaults to linting staged Markdown files only.
 
 set -euo pipefail
 
 MODE="staged"
-if [[ "${1:-}" == "--all" ]]; then
-  MODE="all"
-fi
+RANGE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --all)
+      MODE="all"
+      shift
+      ;;
+    --range)
+      MODE="range"
+      RANGE="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$REPO_ROOT"
@@ -36,12 +51,22 @@ if [[ "$MODE" == "all" ]]; then
 fi
 
 FILES=()
-while IFS= read -r file; do
-  FILES+=("$file")
-done < <(git diff --cached --name-only --diff-filter=ACM | rg -i '\.md$' || true)
+if [[ "$MODE" == "range" ]]; then
+  if [[ -z "$RANGE" ]]; then
+    echo "Error: --range requires a git range" >&2
+    exit 2
+  fi
+  while IFS= read -r file; do
+    FILES+=("$file")
+  done < <(git diff --name-only "$RANGE" | rg -i '\.md$' || true)
+else
+  while IFS= read -r file; do
+    FILES+=("$file")
+  done < <(git diff --cached --name-only --diff-filter=ACM | rg -i '\.md$' || true)
+fi
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "ℹ️  No staged markdown files to lint"
+  echo "ℹ️  No markdown files to lint"
   exit 0
 fi
 
