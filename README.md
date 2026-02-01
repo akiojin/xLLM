@@ -76,7 +76,7 @@ docker run --rm -p 32769:32769   -e LLMLB_URL=http://host.docker.internal:32768 
 
 ## Project Structure
 
-```
+```text
 .
 ├── src
 ├── include

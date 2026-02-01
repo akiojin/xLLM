@@ -38,11 +38,11 @@ cd "$REPO_ROOT"
 
 run_markdownlint() {
   if command -v pnpm >/dev/null 2>&1; then
-    pnpm dlx markdownlint-cli2 "$@"
+    pnpm dlx markdownlint-cli2@0.13.0 "$@"
     return
   fi
   if command -v npx >/dev/null 2>&1; then
-    npx --no-install markdownlint-cli2 "$@"
+    npx markdownlint-cli2@0.13.0 "$@"
     return
   fi
   echo "Error: pnpm or npx not found. Please install Node.js and pnpm/npm." >&2
