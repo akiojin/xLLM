@@ -178,7 +178,7 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
         );
 
         if (res) {
-            if (res->status == 200) {
+            if (res->status == 200 && stream_error.empty()) {
                 response.error = CliError::Success;
                 return response;
             }

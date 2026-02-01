@@ -177,36 +177,13 @@ bool is_gpt_oss_model(const ModelDescriptor& descriptor, const std::string& mode
     return is_gpt_oss_config(model_dir);
 }
 
-std::string strip_control_tokens(std::string text) {
-    const std::vector<std::string> tokens = {
-        "<|start|>", "<|end|>", "<|message|>", "<|channel|>",
-        "<|return|>", "<|constrain|>",
-        "<|im_start|>", "<|im_end|>",
-        "<|startoftext|>", "<|endoftext|>",
-        "<|eot_id|>", "</s>", "<s>"
-    };
-    for (const auto& t : tokens) {
-        size_t pos = 0;
-        while ((pos = text.find(t, pos)) != std::string::npos) {
-            text.erase(pos, t.size());
-        }
-    }
-    const auto start = text.find_first_not_of(" \t\n\r");
-    if (start == std::string::npos) {
-        return "";
-    }
-    const auto end = text.find_last_not_of(" \t\n\r");
-    return text.substr(start, end - start + 1);
-}
-
-
 std::string extract_gpt_oss_final(const std::string& output) {
     const std::string end_token = "<|return|>";
     const auto end_pos = output.find(end_token);
     if (end_pos == std::string::npos) {
-        return strip_control_tokens(output);
+        return harmony::strip_control_tokens(output);
     }
-    return strip_control_tokens(output.substr(0, end_pos));
+    return harmony::strip_control_tokens(output.substr(0, end_pos));
 }
 
 std::string extract_gpt_oss_final_channel(const std::string& output) {
@@ -233,7 +210,7 @@ std::string extract_gpt_oss_final_channel(const std::string& output) {
     if (stop < msg_pos) {
         return "";
     }
-    return strip_control_tokens(output.substr(msg_pos, stop - msg_pos));
+    return harmony::strip_control_tokens(output.substr(msg_pos, stop - msg_pos));
 }
 
 std::string clean_gpt_oss_output(const std::string& output) {
@@ -246,9 +223,9 @@ std::string clean_gpt_oss_output(const std::string& output) {
     }
     if (output.find("<|end|>") != std::string::npos) {
         const auto end_pos = output.find("<|end|>");
-        return strip_control_tokens(output.substr(0, end_pos));
+        return harmony::strip_control_tokens(output.substr(0, end_pos));
     }
-    std::string result = strip_control_tokens(output);
+    std::string result = harmony::strip_control_tokens(output);
     if (result.empty()) {
         return result;
     }

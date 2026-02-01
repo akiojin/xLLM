@@ -943,8 +943,9 @@ bool tokenize(
 
 /* Detect if tokenizer uses GPT-2 byte-level encoding */
 static bool uses_gpt2_byte_encoding(const TokenizerImpl& tokenizer) {
-    if (tokenizer.uses_gpt2_byte_encoding.has_value()) {
-        return *tokenizer.uses_gpt2_byte_encoding;
+    int cached = tokenizer.uses_gpt2_byte_encoding.load(std::memory_order_acquire);
+    if (cached != -1) {
+        return cached == 1;
     }
     // Check for GPT-2 style tokens like "Ġ" (U+0120 = space in GPT-2 encoding)
     // Qwen2/LLama3 use different encoding where tokens are plain UTF-8
@@ -980,7 +981,14 @@ static bool uses_gpt2_byte_encoding(const TokenizerImpl& tokenizer) {
 
     // If more than 10% of checked tokens have GPT-2 markers, assume GPT-2 encoding
     bool uses_gpt2 = (checked > 0) && (gpt2_marker_count * 10 > checked);
-    tokenizer.uses_gpt2_byte_encoding = uses_gpt2;
+    int expected = -1;
+    if (!tokenizer.uses_gpt2_byte_encoding.compare_exchange_strong(
+            expected,
+            uses_gpt2 ? 1 : 0,
+            std::memory_order_release,
+            std::memory_order_relaxed)) {
+        uses_gpt2 = tokenizer.uses_gpt2_byte_encoding.load(std::memory_order_acquire) == 1;
+    }
     STCPP_DEBUG_LOG("[DEBUG] uses_gpt2_byte_encoding: checked=%zu, gpt2_markers=%zu, uses_gpt2=%d\n",
                     checked, gpt2_marker_count, uses_gpt2);
     return uses_gpt2;

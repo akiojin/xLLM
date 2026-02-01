@@ -43,7 +43,6 @@ GGUFの挙動は維持し、safetensors_cppエンジンでのみ量子化を扱�
 - ggml（safetensors.cppの依存）
 - xllm core / engine registry
 
-
 **ストレージ**: ファイルシステム（モデルディレクトリ、manifest.json）
 **テスト**: xllm unit/integration/contract テスト
 **対象プラットフォーム**: macOS (Metal), Windows/Linux (CUDA), Linux (ROCm), Vulkan

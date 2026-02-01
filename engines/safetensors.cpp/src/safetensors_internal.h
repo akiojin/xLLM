@@ -104,8 +104,8 @@ struct TokenizerImpl {
     // Special tokens (e.g., <|im_start|>, <|im_end|>, etc.)
     std::unordered_set<std::string> special_tokens;
 
-    // Cache for GPT-2 byte encoding detection
-    mutable std::optional<bool> uses_gpt2_byte_encoding;
+    // Cache for GPT-2 byte encoding detection (-1 unknown, 0 false, 1 true)
+    mutable std::atomic<int> uses_gpt2_byte_encoding{-1};
 };
 
 /* Chat message for template application */
