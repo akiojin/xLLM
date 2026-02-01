@@ -220,8 +220,8 @@ GGUFに変換することなく直接読み込んで推論を実行したい。�
 
 | アーキテクチャ | 状態 | 実装根拠 | 備考 |
 | ------------- | ---- | -------- | ---- |
-| **gpt-oss (MoE + MXFP4)** | 実装済み | `engines/safetensors.cpp/src/ggml_model.cpp`, `engines/safetensors.cpp/src/transformer.cpp` | `mlp.router.*` / `mlp.experts.*_(blocks\|scales\|bias)` の読み込みとMoE forwardを含む |
-| **nemotron3 (Mamba-Transformer MoE)** | 実装済み（未統合） | `engines/safetensors.cpp/src/arch/nemotron3.*`, `mamba.*`, `moe.*`, `gqa.*` | forwardパスとの統合が未実施 |
+| gpt-oss (MoE + MXFP4) | 実装済み | engines/safetensors.cpp/src | MoE forward + mlp.* 対応 |
+| nemotron3 (Mamba-Transformer MoE) | 実装済み（未統合） | engines/safetensors.cpp/src/arch | forward未統合 |
 
 **備考**:
 
