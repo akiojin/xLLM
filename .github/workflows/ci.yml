@@ -111,6 +111,8 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10.20.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Run commitlint
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
@@ -123,4 +125,4 @@ jobs:
           if [ -z "$FROM_SHA" ] || [ "$FROM_SHA" = "0000000000000000000000000000000000000000" ]; then
             FROM_SHA="$(git rev-list --max-parents=0 HEAD)"
           fi
-          pnpm dlx commitlint --from "$FROM_SHA" --to "$TO_SHA"
+          pnpm exec commitlint --from "$FROM_SHA" --to "$TO_SHA"
