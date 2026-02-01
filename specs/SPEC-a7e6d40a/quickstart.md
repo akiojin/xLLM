@@ -6,7 +6,7 @@ Load Balancer/NodeのCLIインターフェースの使用方法を説明する�
 
 ## Load Balancer CLI
 
-### ヘルプ表示
+### ヘルプ表示（Load Balancer）
 
 ```bash
 llmlb --help
@@ -14,7 +14,7 @@ llmlb --help
 llmlb -h
 ```
 
-### バージョン表示
+### バージョン表示（Load Balancer）
 
 ```bash
 llmlb --version
@@ -41,7 +41,7 @@ llmlb
 - ホスト: 0.0.0.0
 - ログレベル: info
 
-### 環境変数による設定
+### 環境変数による設定（Load Balancer）
 
 ```bash
 # ポートを変更
@@ -59,7 +59,7 @@ llmlb
 
 ## Node CLI
 
-### ヘルプ表示
+### ヘルプ表示（Node）
 
 ```bash
 xllm --help
@@ -67,7 +67,7 @@ xllm --help
 xllm -h
 ```
 
-### バージョン表示
+### バージョン表示（Node）
 
 ```bash
 xllm --version
@@ -88,7 +88,7 @@ xllm 0.1.0
 xllm
 ```
 
-### 環境変数による設定
+### 環境変数による設定（Node）
 
 ```bash
 # ロードバランサーURLを指定
