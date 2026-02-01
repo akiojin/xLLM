@@ -175,7 +175,7 @@ For more information, try '--help'.
 ### 必須環境変数が未設定の場合
 
 ```bash
-# 初回起動時、ADMIN_PASSWORDが必須
+# 初回起動時、LLMLB_ADMIN_PASSWORDが必須
 llmlb
 ```
 

@@ -11,20 +11,20 @@ llmlb [OPTIONS]
 ### オプション
 
 | オプション | 短縮形 | 説明 |
-|-----------|--------|------|
+| ---------- | ------ | ---- |
 | `--help` | `-h` | ヘルプ表示 |
 | `--version` | `-V` | バージョン表示 |
 
-### 終了コード
+### 終了コード（Load Balancer）
 
 | コード | 意味 |
-|--------|------|
+| ------ | ---- |
 | 0 | 正常終了 |
 | 1 | 引数エラー |
 | 2 | 設定エラー |
 | 3 | 起動失敗 |
 
-### ヘルプ出力
+### ヘルプ出力（Load Balancer）
 
 ```text
 LLM Load Balancer - OpenAI-compatible API gateway
@@ -44,7 +44,7 @@ Environment Variables:
   LLMLB_ADMIN_PASSWORD    Initial admin password (required on first run)
 ```
 
-### バージョン出力
+### バージョン出力（Load Balancer）
 
 ```text
 llmlb {version}
@@ -61,20 +61,20 @@ xllm [OPTIONS]
 ### オプション
 
 | オプション | 短縮形 | 説明 |
-|-----------|--------|------|
+| ---------- | ------ | ---- |
 | `--help` | `-h` | ヘルプ表示 |
 | `--version` | `-V` | バージョン表示 |
 
-### 終了コード
+### 終了コード（Node）
 
 | コード | 意味 |
-|--------|------|
+| ------ | ---- |
 | 0 | 正常終了 |
 | 1 | 引数エラー |
 | 2 | 設定エラー |
 | 3 | 起動失敗 |
 
-### ヘルプ出力
+### ヘルプ出力（Node）
 
 ```text
 LLM Node - Inference engine for LLM Load Balancer
@@ -92,7 +92,7 @@ Environment Variables:
   XLLM_LOG_LEVEL           Log level (default: info)
 ```
 
-### バージョン出力
+### バージョン出力（Node）
 
 ```text
 xllm {version}
@@ -103,7 +103,7 @@ xllm {version}
 ### Load Balancer環境変数
 
 | 変数名 | 型 | 必須 | デフォルト | 説明 |
-|--------|-----|------|-----------|------|
+| ------ | --- | ---- | ---------- | ---- |
 | `LLMLB_PORT` | u16 | No | 8080 | 待受ポート |
 | `LLMLB_HOST` | String | No | 0.0.0.0 | 待受アドレス |
 | `LLMLB_LOG_LEVEL` | String | No | info | ログレベル |
@@ -120,7 +120,7 @@ xllm {version}
 ### Node環境変数
 
 | 変数名 | 型 | 必須 | デフォルト | 説明 |
-|--------|-----|------|-----------|------|
+| ------ | --- | ---- | ---------- | ---- |
 | `LLMLB_URL` | String | No | `http://127.0.0.1:8080` | ロードバランサーURL |
 | `XLLM_PORT` | u16 | No | 11435 | 待受ポート |
 | `XLLM_IP` | String | No | (自動検出) | ノードIP |

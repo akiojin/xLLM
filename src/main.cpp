@@ -517,20 +517,41 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
                                 };
 
                                 std::thread worker([&]() {
-                                    xllm::ModelDownloader downloader("", model_sync->getModelsDir());
-                                    bool ok = model_sync->downloadModel(downloader, model_id_copy, callbacks, filename_copy);
-                                    std::string err;
-                                    if (!ok) {
-                                        err = downloader.getLastError();
-                                        if (err.empty()) {
-                                            err = "download failed";
+                                    try {
+                                        xllm::ModelDownloader downloader("", model_sync->getModelsDir());
+                                        bool ok = model_sync->downloadModel(
+                                            downloader,
+                                            model_id_copy,
+                                            callbacks,
+                                            filename_copy
+                                        );
+                                        std::string err;
+                                        if (!ok) {
+                                            err = downloader.getLastError();
+                                            if (err.empty()) {
+                                                err = "download failed";
+                                            }
                                         }
-                                    }
-                                    {
-                                        std::lock_guard<std::mutex> lock(mu);
-                                        state.ok = ok;
-                                        state.error = err;
-                                        state.done = true;
+                                        {
+                                            std::lock_guard<std::mutex> lock(mu);
+                                            state.ok = ok;
+                                            state.error = err;
+                                            state.done = true;
+                                        }
+                                    } catch (const std::exception& e) {
+                                        {
+                                            std::lock_guard<std::mutex> lock(mu);
+                                            state.ok = false;
+                                            state.error = e.what();
+                                            state.done = true;
+                                        }
+                                    } catch (...) {
+                                        {
+                                            std::lock_guard<std::mutex> lock(mu);
+                                            state.ok = false;
+                                            state.error = "download failed";
+                                            state.done = true;
+                                        }
                                     }
                                 });
 
