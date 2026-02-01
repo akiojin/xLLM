@@ -18,8 +18,12 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --range)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Error: --range requires a git range" >&2
+        exit 2
+      fi
       MODE="range"
-      RANGE="${2:-}"
+      RANGE="$2"
       shift 2
       ;;
     *)
