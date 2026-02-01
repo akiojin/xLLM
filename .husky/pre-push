@@ -29,3 +29,11 @@ else
 fi
 
 bash .specify/scripts/checks/check-commits.sh --from "$BASE_REF" --to HEAD
+
+if command -v cmake >/dev/null 2>&1; then
+  cmake -S . -B build -DBUILD_TESTS=ON -DPORTABLE_BUILD=ON
+  cmake --build build --config Release
+else
+  echo "Error: cmake not found. Please install CMake." >&2
+  exit 1
+fi
