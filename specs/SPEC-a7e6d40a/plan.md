@@ -86,7 +86,7 @@ llmlb/
 ### 現在の環境変数使用状況
 
 | 現在の変数名 | 使用場所 | 新しい変数名 |
-|-------------|---------|------------|
+| ------------ | -------- | ------------ |
 | `LLMLB_HOST` | main.rs:17 | `LLMLB_HOST` |
 | `LLMLB_PORT` | main.rs:18 | `LLMLB_PORT` |
 | `JWT_SECRET` | main.rs:168 | `LLMLB_JWT_SECRET` |
@@ -121,7 +121,7 @@ llmlb/
 
 ## Phase 1: 設計
 
-### CLI構造
+### CLI構造（Load Balancer）
 
 ```text
 llmlb [OPTIONS] [COMMAND]
@@ -199,7 +199,7 @@ fn get_env_with_fallback(new_name: &str, old_name: &str) -> Option<String> {
 
 ## Node（C++）CLI設計
 
-### CLI構造
+### CLI構造（Node）
 
 ```text
 xllm [OPTIONS]
@@ -221,7 +221,7 @@ Environment Variables:
 - `argc`/`argv` を手動でパース
 - `--help`, `--version` のみ対応（サブコマンドなし）
 
-### 変更対象ファイル
+### 変更対象ファイル（Node）
 
 - `node/src/main.cpp` - CLI引数処理追加
 - `node/src/utils/config.cpp` - 環境変数名更新
@@ -231,7 +231,7 @@ Environment Variables:
 ### Node環境変数マイグレーション
 
 | 現在の変数名 | 新しい変数名 |
-|-------------|------------|
+| ------------ | ------------ |
 | `LLM_MODELS_DIR` | `XLLM_MODELS_DIR` |
 | `LLM_HEARTBEAT_SECS` | `XLLM_HEARTBEAT_SECS` |
 | `LLM_BIND_ADDRESS` | `XLLM_BIND_ADDRESS` |
@@ -265,7 +265,7 @@ Environment Variables:
 - プレーンテキスト（UUIDv4形式: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`）
 - 改行なし
 
-### 変更対象ファイル
+### 変更対象ファイル（JWT_SECRET）
 
 - `llmlb/src/main.rs` - JWT_SECRET読み込みロジック変更
 
@@ -306,7 +306,7 @@ Environment Variables:
 ## 複雑さトラッキング
 
 | 違反 | 必要な理由 | より単純な代替案が却下された理由 |
-|------|-----------|--------------------------------|
+| ---- | -------- | -------------------------------- |
 | なし | - | - |
 
 ## 進捗トラッキング

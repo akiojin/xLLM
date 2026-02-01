@@ -167,7 +167,8 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/common
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/vendor  # T166: minja Jinja2 parser
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/minja/include       # T166: minja Jinja2 parser
 )
 
 # whisper.cpp include directories

@@ -213,6 +213,7 @@ Nemotron 3 Nanoのハイブリッド Mamba-Transformer MoE アーキテクチャ
 ### アーキテクチャ詳細
 
 **モデル仕様**:
+
 - 3.2B active parameters (31.6B total parameters)
 - 52 layers total:
   - 23 MoE layers
@@ -221,24 +222,28 @@ Nemotron 3 Nanoのハイブリッド Mamba-Transformer MoE アーキテクチャ
 - 1M-token native context window
 
 **MoE (Mixture of Experts)**:
+
 - 128 routed experts per MoE layer
 - 1 shared expert per MoE layer
 - 6 experts activated per token (Top-6 routing)
 - Load balancing mechanism
 
 **Mamba-2 State Space Model**:
+
 - Constant state storage during generation (vs linear KV cache)
 - Replaces expensive self-attention layers
 - Efficient long-context processing
 
 **ハイブリッド構成**:
+
 - MoE layers interleaved with Mamba-2 layers (predominantly)
 - 6 GQA layers for critical attention needs
 - Residual connections throughout
 
 ### 実装参考
 
-- NVIDIA Technical Report: "Nemotron 3 Nano: Open, Efficient Mixture-of-Experts Hybrid Mamba-Transformer Model for Agentic Reasoning" (December 2025)
+- NVIDIA Technical Report: "Nemotron 3 Nano: Open, Efficient Mixture-of-Experts
+  Hybrid Mamba-Transformer Model for Agentic Reasoning" (December 2025)
 - HuggingFace model: `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`
 - Mamba公式実装: state-spaces/mamba
 - MoE実装参考: Mixtral, DeepSeek-MoE

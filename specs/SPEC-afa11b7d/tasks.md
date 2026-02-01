@@ -20,25 +20,32 @@
 
 ## Phase 2: US1 (P1) 量子化推論
 
-### Tests First (RED)
+### Tests First (RED) - US1
 
-- [x] T010 [P] xllm/tests/unit/model_storage_test.cpp にsafetensors量子化指定の解決テストを追加 (依存: T002, T003)
-- [x] T011 [P] xllm/tests/unit/inference_engine_test.cpp に量子化指定の伝播/拒否テストを追加 (依存: T002, T003)
+- [x] T010 [P] xllm/tests/unit/model_storage_test.cpp にsafetensors量子化指定の
+  解決テストを追加 (依存: T002, T003)
+- [x] T011 [P] xllm/tests/unit/inference_engine_test.cpp に量子化指定の伝播/拒否
+  テストを追加 (依存: T002, T003)
 
-### Implementation (GREEN)
+### Implementation (GREEN) - US1
 
-- [x] T012 xllm/src/models/model_storage.cpp でsafetensors量子化指定を解決しmetadataへ反映 (依存: T010)
-- [x] T013 xllm/engines/safetensors/safetensors_engine.h/.cpp に量子化設定の受け渡しを追加 (依存: T011)
-- [x] T014 xllm/src/core/inference_engine.cpp で量子化指定の検証とエラー整形を追加 (依存: T011, T012)
+- [x] T012 xllm/src/models/model_storage.cpp でsafetensors量子化指定を
+  解決しmetadataへ反映 (依存: T010)
+- [x] T013 xllm/engines/safetensors/safetensors_engine.h/.cpp に量子化設定の
+  受け渡しを追加 (依存: T011)
+- [x] T014 xllm/src/core/inference_engine.cpp で量子化指定の検証と
+  エラー整形を追加 (依存: T011, T012)
 
 ## Phase 3: US2 (P1) 指定/表示
 
-### Tests First (RED)
+### Tests First (RED) - US2
 
-- [x] T020 [P] xllm/tests/contract/cli_show_test.cpp に量子化表示の契約テストを追加 (依存: T004)
-- [x] T021 [P] xllm/tests/contract/cli_list_test.cpp に量子化判別表示の契約テストを追加 (依存: T004)
+- [x] T020 [P] xllm/tests/contract/cli_show_test.cpp に量子化表示の契約テストを
+  追加 (依存: T004)
+- [x] T021 [P] xllm/tests/contract/cli_list_test.cpp に量子化判別表示の契約テストを
+  追加 (依存: T004)
 
-### Implementation (GREEN)
+### Implementation (GREEN) - US2
 
 - [x] T022 xllm/src/main.cpp の /api/show /api/tags レスポンスに量子化メタ情報を追加 (依存: T012)
 - [x] T023 xllm/src/cli/commands/show.cpp で量子化情報を出力 (依存: T020, T022)
@@ -46,12 +53,14 @@
 
 ## Phase 4: US3 (P2) 未対応量子化の明確なエラー
 
-### Tests First (RED)
+### Tests First (RED) - US3
 
-- [x] T030 [P] xllm/tests/unit/inference_engine_test.cpp に未対応方式エラーのテストを追加 (依存: T002)
-- [x] T031 [P] xllm/tests/unit/model_storage_test.cpp に不正量子化指定のテストを追加 (依存: T002)
+- [x] T030 [P] xllm/tests/unit/inference_engine_test.cpp に未対応方式エラーの
+  テストを追加 (依存: T002)
+- [x] T031 [P] xllm/tests/unit/model_storage_test.cpp に不正量子化指定の
+  テストを追加 (依存: T002)
 
-### Implementation (GREEN)
+### Implementation (GREEN) - US3
 
 - [x] T032 xllm/src/core/inference_engine.cpp で未対応/不正量子化のエラーを明確化 (依存: T030)
 - [x] T033 xllm/src/models/model_storage.cpp で不正指定の検出・返却を追加 (依存: T031)
