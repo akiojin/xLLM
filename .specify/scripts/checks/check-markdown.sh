@@ -35,7 +35,11 @@ if [[ "$MODE" == "all" ]]; then
   exit 0
 fi
 
-mapfile -t FILES < <(git diff --cached --name-only --diff-filter=ACM | rg -i '\.md$' || true)
+FILES=()
+while IFS= read -r file; do
+  FILES+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACM | rg -i '\.md$' || true)
+
 if [[ ${#FILES[@]} -eq 0 ]]; then
   echo "ℹ️  No staged markdown files to lint"
   exit 0
