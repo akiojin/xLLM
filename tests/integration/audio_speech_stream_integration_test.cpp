@@ -193,7 +193,7 @@ TEST_F(AudioSpeechIntegrationFixture, StreamingSpeechDeliversMultipleChunks) {
 
 TEST_F(AudioSpeechIntegrationFixture, TranscriptionsReturnsJson) {
     httplib::Client cli("127.0.0.1", 18097);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"file", makeWavData(), "sample.wav", "audio/wav"},
         {"model", "whisper-1", "", ""},
         {"response_format", "json", "", ""},

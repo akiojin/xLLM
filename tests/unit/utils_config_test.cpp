@@ -84,8 +84,9 @@ TEST(UtilsConfigTest, NewEnvVarsTakePriorityOverDeprecated) {
 
 TEST(UtilsConfigTest, DefaultConfigPathIsXllmDir) {
     // Verify the default config path is ~/.xllm/config.json (not ~/.llmlb/)
-    EnvGuard guard({"XLLM_CONFIG", "HOME"});
+    EnvGuard guard({"XLLM_CONFIG", "HOME", "XLLM_PORT"});
     unsetenv("XLLM_CONFIG");
+    unsetenv("XLLM_PORT");
 
     // Create a temporary home directory with .xllm/config.json
     fs::path tmp_home = fs::temp_directory_path() / "test_xllm_home";

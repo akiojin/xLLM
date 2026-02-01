@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${XLLM_BUILD_DIR:-$ROOT_DIR/build}"
 BUILD_TYPE="${XLLM_BUILD_TYPE:-Release}"
-CMAKE_FLAGS="${XLLM_CMAKE_FLAGS:--DBUILD_TESTS=ON -DPORTABLE_BUILD=ON}"
+DEFAULT_PORTABLE="ON"
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+  DEFAULT_PORTABLE="OFF"
+fi
+CMAKE_FLAGS="${XLLM_CMAKE_FLAGS:--DBUILD_TESTS=ON -DPORTABLE_BUILD=$DEFAULT_PORTABLE}"
 RUN_E2E="${XLLM_RUN_E2E:-0}"
 
 echo "[INFO] Configuring build in $BUILD_DIR"

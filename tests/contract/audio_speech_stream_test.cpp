@@ -193,7 +193,7 @@ TEST_F(AudioSpeechContractFixture, SpeechEndpointReturnsAudioWithoutStreaming) {
 
 TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsJson) {
     httplib::Client cli("127.0.0.1", 18096);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"file", makeWavData(), "sample.wav", "audio/wav"},
         {"model", "whisper-1", "", ""},
         {"language", "en", "", ""},
@@ -212,7 +212,7 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsJson) {
 
 TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsText) {
     httplib::Client cli("127.0.0.1", 18096);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"file", makeWavData(), "sample.wav", "audio/wav"},
         {"model", "whisper-1", "", ""},
         {"response_format", "text", "", ""},
@@ -227,7 +227,7 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsText) {
 
 TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsSrt) {
     httplib::Client cli("127.0.0.1", 18096);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"file", makeWavData(), "sample.wav", "audio/wav"},
         {"model", "whisper-1", "", ""},
         {"response_format", "srt", "", ""},
@@ -243,7 +243,7 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsSrt) {
 
 TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsVtt) {
     httplib::Client cli("127.0.0.1", 18096);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"file", makeWavData(), "sample.wav", "audio/wav"},
         {"model", "whisper-1", "", ""},
         {"response_format", "vtt", "", ""},
@@ -259,7 +259,7 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsReturnsVtt) {
 
 TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsMissingFile) {
     httplib::Client cli("127.0.0.1", 18096);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"model", "whisper-1", "", ""},
     };
 
@@ -272,7 +272,7 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsMissingFile) {
 
 TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsMissingModel) {
     httplib::Client cli("127.0.0.1", 18096);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"file", makeWavData(), "sample.wav", "audio/wav"},
     };
 
@@ -285,7 +285,7 @@ TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsMissingModel) {
 
 TEST_F(AudioSpeechContractFixture, TranscriptionsRejectsEmptyFile) {
     httplib::Client cli("127.0.0.1", 18096);
-    httplib::MultipartFormDataItems items = {
+    httplib::UploadFormDataItems items = {
         {"file", "", "sample.wav", "audio/wav"},
         {"model", "whisper-1", "", ""},
     };

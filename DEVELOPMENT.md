@@ -42,6 +42,10 @@ Run with E2E:
 XLLM_RUN_E2E=1 scripts/run-local-tests.sh
 ```
 
+Apple Silicon note:
+- `PORTABLE_BUILD=ON` uses `-march=x86-64`. On arm64 macOS, set `XLLM_CMAKE_FLAGS` to disable it,
+  or rely on the default in `scripts/run-local-tests.sh` which flips it to OFF.
+
 ## Run
 
 ```bash
