@@ -14,7 +14,11 @@
 #include <limits>
 #include <regex>
 
-#include "unicode.h"
+#include <vector>
+
+// Provided by llama.cpp (linked via xLLM). Keep declaration local to avoid fragile includes.
+std::vector<std::string> unicode_regex_split(const std::string& text,
+                                             const std::vector<std::string>& regex_exprs);
 
 namespace stcpp {
 
