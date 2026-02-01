@@ -97,3 +97,30 @@ jobs:
           version: 10.20.0
       - name: Run markdownlint
         run: pnpm dlx markdownlint-cli2 "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!build"
+
+  commitlint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.20.0
+      - name: Run commitlint
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            FROM_SHA="${{ github.event.pull_request.base.sha }}"
+            TO_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            FROM_SHA="${{ github.event.before }}"
+            TO_SHA="${{ github.sha }}"
+          fi
+          if [ -z "$FROM_SHA" ] || [ "$FROM_SHA" = "0000000000000000000000000000000000000000" ]; then
+            FROM_SHA="$(git rev-list --max-parents=0 HEAD)"
+          fi
+          pnpm dlx commitlint --from "$FROM_SHA" --to "$TO_SHA"

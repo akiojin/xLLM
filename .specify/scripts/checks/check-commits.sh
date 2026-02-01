@@ -12,8 +12,16 @@
 
 set -e
 
-FROM_COMMIT="origin/main"
+FROM_COMMIT=""
 TO_COMMIT="HEAD"
+
+if git rev-parse --verify -q origin/develop >/dev/null; then
+    FROM_COMMIT="origin/develop"
+elif git rev-parse --verify -q origin/main >/dev/null; then
+    FROM_COMMIT="origin/main"
+else
+    FROM_COMMIT="HEAD~1"
+fi
 
 # 引数解析
 while [[ $# -gt 0 ]]; do
@@ -50,10 +58,18 @@ echo "Range: $FROM_COMMIT..$TO_COMMIT"
 echo ""
 
 # commitlintの存在確認
-if ! command -v npx &> /dev/null; then
-    echo "Error: npx not found. Please install Node.js and npm." >&2
+run_commitlint() {
+    if command -v pnpm >/dev/null 2>&1; then
+        pnpm exec commitlint --verbose
+        return
+    fi
+    if command -v npx >/dev/null 2>&1; then
+        npx --no-install commitlint --verbose
+        return
+    fi
+    echo "Error: pnpm or npx not found. Please install Node.js and pnpm/npm." >&2
     exit 2
-fi
+}
 
 # commitlint設定ファイルの確認
 if [ ! -f ".commitlintrc.json" ] && [ ! -f "commitlint.config.js" ]; then
@@ -84,7 +100,7 @@ while IFS= read -r commit; do
     echo "Checking commit: ${commit:0:8}"
 
     # commitlintでチェック
-    if ! echo "$MESSAGE" | npx commitlint --verbose 2>&1; then
+    if ! echo "$MESSAGE" | run_commitlint 2>&1; then
         echo "❌ Commit message does not follow conventions: ${commit:0:8}"
         echo "   Message: $(echo "$MESSAGE" | head -n 1)"
         FAILED_COMMITS+=("$commit")
