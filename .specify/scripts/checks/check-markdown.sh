@@ -51,18 +51,25 @@ if [[ "$MODE" == "all" ]]; then
 fi
 
 FILES=()
+collect_files() {
+  while IFS= read -r file; do
+    case "$file" in
+      third_party/*|.git/*|.github/*|.worktrees/*|build/*|node_modules/*)
+        continue
+        ;;
+    esac
+    FILES+=("$file")
+  done
+}
+
 if [[ "$MODE" == "range" ]]; then
   if [[ -z "$RANGE" ]]; then
     echo "Error: --range requires a git range" >&2
     exit 2
   fi
-  while IFS= read -r file; do
-    FILES+=("$file")
-  done < <(git diff --name-only "$RANGE" | rg -i '\.md$' || true)
+  collect_files < <(git diff --name-only "$RANGE" | rg -i '\.md$' || true)
 else
-  while IFS= read -r file; do
-    FILES+=("$file")
-  done < <(git diff --cached --name-only --diff-filter=ACM | rg -i '\.md$' || true)
+  collect_files < <(git diff --cached --name-only --diff-filter=ACM | rg -i '\.md$' || true)
 fi
 
 if [[ ${#FILES[@]} -eq 0 ]]; then

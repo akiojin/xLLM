@@ -2,13 +2,13 @@
 
 ## Load Balancer CLI
 
-### コマンド形式
+### コマンド形式（Load Balancer）
 
 ```text
 llmlb [OPTIONS]
 ```
 
-### オプション
+### オプション（Load Balancer）
 
 | オプション | 短縮形 | 説明 |
 | ---------- | ------ | ---- |
@@ -52,13 +52,13 @@ llmlb {version}
 
 ## Node CLI
 
-### コマンド形式
+### コマンド形式（Node）
 
 ```text
 xllm [OPTIONS]
 ```
 
-### オプション
+### オプション（Node）
 
 | オプション | 短縮形 | 説明 |
 | ---------- | ------ | ---- |
