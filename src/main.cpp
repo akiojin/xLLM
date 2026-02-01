@@ -537,10 +537,10 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
                                 auto last_emit = std::chrono::steady_clock::now();
                                 uint64_t last_emit_bytes = 0;
 
-                                auto emit_progress = [&](bool force, const std::string& error_msg) {
+                                auto emit_progress = [&](bool force, const std::string& error_msg) -> bool {
                                     auto now = std::chrono::steady_clock::now();
                                     if (!force && now - last_emit < std::chrono::milliseconds(200)) {
-                                        return;
+                                        return true;
                                     }
                                     uint64_t completed = 0;
                                     uint64_t total = 0;
@@ -572,9 +572,10 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
 
                                     std::string line = j.dump();
                                     line.push_back('\n');
-                                    sink.write(line.data(), line.size());
+                                    return sink.write(line.data(), line.size());
                                 };
 
+                                bool disconnected = false;
                                 while (true) {
                                     bool done = false;
                                     bool ok = false;
@@ -605,11 +606,16 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
                                             registry.setModels(local_model_names);
                                             spdlog::info("Model pull completed, {} models available", local_model_names.size());
                                         }
-                                        emit_progress(true, err);
+                                        if (!emit_progress(true, err)) {
+                                            disconnected = true;
+                                        }
                                         break;
                                     }
 
-                                    emit_progress(false, "");
+                                    if (!emit_progress(false, "")) {
+                                        disconnected = true;
+                                        break;
+                                    }
                                     std::this_thread::sleep_for(std::chrono::milliseconds(200));
                                 }
 
@@ -617,6 +623,9 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
                                     worker.join();
                                 }
 
+                                if (disconnected) {
+                                    return false;
+                                }
                                 sink.done();
                                 return true;
                             });

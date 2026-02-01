@@ -57,6 +57,7 @@ GGUFの挙動は維持し、safetensors_cppエンジンでのみ量子化を扱�
 **スケール/スコープ**: safetensorsモデルの量子化対応に限定
 
 ## 憲章チェック
+
 *ゲート: Phase 0 research前に合格必須。Phase 1 design後に再チェック。*
 
 **シンプルさ**:

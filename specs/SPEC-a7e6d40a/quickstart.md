@@ -202,7 +202,7 @@ Error: Failed to bind to 0.0.0.0:8080: Address already in use
 ### Load Balancer
 
 | 環境変数 | デフォルト | 説明 |
-|----------|-----------|------|
+| -------- | ---------- | ---- |
 | `LLMLB_PORT` | 8080 | 待受ポート |
 | `LLMLB_HOST` | 0.0.0.0 | 待受アドレス |
 | `LLMLB_LOG_LEVEL` | info | ログレベル |
@@ -213,7 +213,7 @@ Error: Failed to bind to 0.0.0.0:8080: Address already in use
 ### Node
 
 | 環境変数 | デフォルト | 説明 |
-|----------|-----------|------|
+| -------- | ---------- | ---- |
 | `LLMLB_URL` | `http://127.0.0.1:8080` | ロードバランサーURL |
 | `XLLM_PORT` | 11435 | 待受ポート |
 | `XLLM_MODELS_DIR` | ~/.runtime/models | モデル保存先 |
