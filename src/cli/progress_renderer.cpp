@@ -19,12 +19,15 @@ ProgressRenderer::ProgressRenderer(uint64_t total_bytes)
 
 ProgressRenderer::~ProgressRenderer() = default;
 
-void ProgressRenderer::update(uint64_t downloaded_bytes, double speed_bps) {
+void ProgressRenderer::update(uint64_t downloaded_bytes, uint64_t total_bytes, double speed_bps) {
     if (completed_ || failed_) {
         return;
     }
 
     downloaded_bytes_ = downloaded_bytes;
+    if (total_bytes > 0) {
+        total_bytes_ = total_bytes;
+    }
 
     std::ostringstream oss;
 
@@ -58,6 +61,10 @@ void ProgressRenderer::update(uint64_t downloaded_bytes, double speed_bps) {
     }
 
     clearAndPrint(oss.str());
+}
+
+void ProgressRenderer::update(uint64_t downloaded_bytes, double speed_bps) {
+    update(downloaded_bytes, total_bytes_, speed_bps);
 }
 
 void ProgressRenderer::complete() {

@@ -1,7 +1,9 @@
 # Data Model: Manager-based engines
 
 ## ModelDescriptor (from model manifest)
+
 ModelDescriptor is provided by the model registry/manifests and includes:
+
 - model_id
 - model_dir
 - format (gguf, safetensors, ...)
@@ -10,7 +12,8 @@ ModelDescriptor is provided by the model registry/manifests and includes:
 - metadata (optional; may include benchmark hints)
 
 ## EngineRegistration
-```
+
+```cpp
 struct EngineRegistration {
     std::string engine_id;
     std::string engine_version;
@@ -21,25 +24,38 @@ struct EngineRegistration {
 ```
 
 ## EngineRegistry
+
 EngineRegistry is an in-process registry owned by TextManager.
 It maps runtime -> list of engines and resolves by format/capability/architecture.
 
-```
+```cpp
 class EngineRegistry {
 public:
-    bool registerEngine(EngineHandle engine, const EngineRegistration& registration, std::string* error);
-    Engine* resolve(const ModelDescriptor& descriptor, const std::string& capability) const;
+    bool registerEngine(
+        EngineHandle engine,
+        const EngineRegistration& registration,
+        std::string* error
+    );
+    Engine* resolve(
+        const ModelDescriptor& descriptor,
+        const std::string& capability
+    ) const;
     std::vector<std::string> getRegisteredRuntimes() const;
 };
 ```
 
 ## TextManager
+
 TextManager creates the EngineRegistry and registers built-in engines.
 
-```
+```cpp
 class TextManager {
 public:
-    Engine* resolve(const ModelDescriptor& descriptor, const std::string& capability, std::string* error);
+    Engine* resolve(
+        const ModelDescriptor& descriptor,
+        const std::string& capability,
+        std::string* error
+    );
     std::vector<std::string> getRegisteredRuntimes() const;
 private:
     std::unique_ptr<EngineRegistry> registry_;
@@ -47,12 +63,13 @@ private:
 ```
 
 ## AudioManager / ImageManager
+
 AudioManager wraps WhisperManager. ImageManager wraps SDManager.
 They are static, in-process managers (no plugin loading).
 
 ## Flow (simplified)
 
-```
+```text
 ModelStorage -> ModelDescriptor
                  |
                  v

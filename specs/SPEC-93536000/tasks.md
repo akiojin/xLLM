@@ -14,7 +14,7 @@
 
 ## Phase 2: Node側実装
 
-### Core
+### Core（Phase 2）
 
 - [x] 2.1 `GpuBackend` 列挙型を `node/src/system/gpu_detector.hpp` に追加
 - [x] 2.2 `GpuDetector::getGpuBackend()` 関数を実装
@@ -24,7 +24,7 @@
 
 ## Phase 3: Load Balancer側実装（コア）
 
-### Core
+### Core（Phase 3）
 
 - [x] 3.1 ノード登録時に `/v1/models` を呼び出してモデル一覧を取得（プル型）
 - [x] 3.2 `/v1/models` 取得失敗時の登録拒否を実装
@@ -55,7 +55,7 @@
 
 ## Phase 6: テスト
 
-### Test
+### Test（Phase 6）
 
 - [x] [P] 6.1 Unit Test: `get_nodes_for_model()` フィルタリング
 - [x] [P] 6.2 Unit Test: `exclude_model_from_node()` 動作確認
@@ -75,14 +75,14 @@
 - [x] 7.2 `supported_models.json` 参照箇所を特定・削除（ModelRegistry等）
 - [x] 7.3 `platforms` 属性に基づくフィルタリングを削除
 
-### Core
+### Core（Phase 7）
 
 - [x] **7.4** `config.json` からアーキテクチャを読み込む（既存: `model_storage.cpp` の `extract_architectures_from_config()`）
 - [x] **7.5** GGUFファイルからアーキテクチャを読み込む（既存: llama.cpp の GGUF メタデータ経由）
 - [x] 7.6 `ModelStorage::listModels()` を更新: config.json/GGUFからアーキテクチャ自動検出（既存実装済み）
 - [x] 7.7 `/v1/models` APIを更新: 対応エンジンが存在するモデルのみを返す（既存: main.cppでengine.isModelSupported()でフィルタリング）
 
-### Test
+### Test（Phase 7）
 
 - [x] [P] 7.8 Unit Test: config.jsonからのアーキテクチャ検出
   - ExtractArchitecturesFromConfigJson（単一アーキテクチャ）

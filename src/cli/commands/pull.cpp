@@ -41,9 +41,7 @@ int pull(const PullOptions& options) {
 
     // Pull model with progress callback
     auto result = client->pullModel(options.model, [&progress](uint64_t downloaded, uint64_t total, double speed) {
-        if (total > 0) {
-            progress.update(downloaded, speed);
-        }
+        progress.update(downloaded, total, speed);
     });
 
     if (!result.ok()) {

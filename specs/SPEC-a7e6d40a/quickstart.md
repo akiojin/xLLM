@@ -6,7 +6,7 @@ Load Balancer/NodeのCLIインターフェースの使用方法を説明する�
 
 ## Load Balancer CLI
 
-### ヘルプ表示
+### ヘルプ表示（Load Balancer）
 
 ```bash
 llmlb --help
@@ -14,7 +14,7 @@ llmlb --help
 llmlb -h
 ```
 
-### バージョン表示
+### バージョン表示（Load Balancer）
 
 ```bash
 llmlb --version
@@ -41,7 +41,7 @@ llmlb
 - ホスト: 0.0.0.0
 - ログレベル: info
 
-### 環境変数による設定
+### 環境変数による設定（Load Balancer）
 
 ```bash
 # ポートを変更
@@ -59,7 +59,7 @@ llmlb
 
 ## Node CLI
 
-### ヘルプ表示
+### ヘルプ表示（Node）
 
 ```bash
 xllm --help
@@ -67,7 +67,7 @@ xllm --help
 xllm -h
 ```
 
-### バージョン表示
+### バージョン表示（Node）
 
 ```bash
 xllm --version
@@ -88,7 +88,7 @@ xllm 0.1.0
 xllm
 ```
 
-### 環境変数による設定
+### 環境変数による設定（Node）
 
 ```bash
 # ロードバランサーURLを指定
@@ -175,7 +175,7 @@ For more information, try '--help'.
 ### 必須環境変数が未設定の場合
 
 ```bash
-# 初回起動時、ADMIN_PASSWORDが必須
+# 初回起動時、LLMLB_ADMIN_PASSWORDが必須
 llmlb
 ```
 
@@ -202,7 +202,7 @@ Error: Failed to bind to 0.0.0.0:8080: Address already in use
 ### Load Balancer
 
 | 環境変数 | デフォルト | 説明 |
-|----------|-----------|------|
+| -------- | ---------- | ---- |
 | `LLMLB_PORT` | 8080 | 待受ポート |
 | `LLMLB_HOST` | 0.0.0.0 | 待受アドレス |
 | `LLMLB_LOG_LEVEL` | info | ログレベル |
@@ -213,7 +213,7 @@ Error: Failed to bind to 0.0.0.0:8080: Address already in use
 ### Node
 
 | 環境変数 | デフォルト | 説明 |
-|----------|-----------|------|
+| -------- | ---------- | ---- |
 | `LLMLB_URL` | `http://127.0.0.1:8080` | ロードバランサーURL |
 | `XLLM_PORT` | 11435 | 待受ポート |
 | `XLLM_MODELS_DIR` | ~/.runtime/models | モデル保存先 |

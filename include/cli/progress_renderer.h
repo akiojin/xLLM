@@ -20,6 +20,12 @@ public:
 
     /// Update progress
     /// @param downloaded_bytes Bytes downloaded so far
+    /// @param total_bytes Total bytes (0 if unknown)
+    /// @param speed_bps Current download speed in bytes/second
+    void update(uint64_t downloaded_bytes, uint64_t total_bytes, double speed_bps);
+
+    /// Update progress (legacy)
+    /// @param downloaded_bytes Bytes downloaded so far
     /// @param speed_bps Current download speed in bytes/second
     void update(uint64_t downloaded_bytes, double speed_bps);
 

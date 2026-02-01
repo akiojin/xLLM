@@ -6,11 +6,9 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
-# commitlint is optional for xLLM; skip if unavailable
-if command -v commitlint >/dev/null 2>&1; then
-  commitlint --edit "$1"
-elif command -v npx >/dev/null 2>&1; then
-  npx --no-install commitlint --edit "$1" || echo "⚠️  commitlint not installed, skipping"
+if command -v npx >/dev/null 2>&1; then
+  npx --no-install commitlint --edit "$1"
 else
-  echo "⚠️  commitlint not installed, skipping"
+  echo "Error: npx not found. Please install Node.js and npm." >&2
+  exit 1
 fi
