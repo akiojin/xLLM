@@ -19,7 +19,7 @@
 **ファイル**: `node/src/system/gpu_detector.hpp`
 
 | バリアント | 説明 | プラットフォーム |
-|-----------|------|------------------|
+| ----------- | ---- | ---------------- |
 | `Metal` | Apple Metal | macOS |
 | `Cuda` | NVIDIA CUDA | Linux/Windows |
 | `DirectML` | DirectX Machine Learning | Windows |
@@ -35,7 +35,7 @@
 **追加フィールド**:
 
 | フィールド | 型 | 説明 |
-|-----------|-----|------|
+| ---------- | --- | ---- |
 | `executable_models` | `Vec<String>` | このノードで実行可能なモデルID一覧 |
 | `excluded_models` | `HashSet<String>` | 推論失敗により一時除外中のモデルID |
 
@@ -54,7 +54,7 @@
 モデルの `platforms` フィールドで使用される文字列（xLLMランタイム側のみ）:
 
 | 文字列 | 対応 GpuBackend |
-|--------|----------------|
+| ------ | -------------- |
 | `macos-metal` | `Metal` |
 | `linux-cuda` | `Cuda` |
 | `windows-cuda` | `Cuda` |
