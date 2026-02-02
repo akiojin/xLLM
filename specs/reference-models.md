@@ -39,6 +39,7 @@ Selection constraints (keep in sync with user requirements):
 ## Vision (image-text-to-text)
 
 ### Official reference models
+
 | Role | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | VLM | Qwen/Qwen2.5-VL-7B-Instruct | Official Qwen VL family |
@@ -48,6 +49,7 @@ Selection constraints (keep in sync with user requirements):
 | VLM | google/gemma-3-27b-it | Official Google Gemma family |
 
 ### Popular models (official repos only, HF Most downloads, 2026-02-01)
+
 | Rank | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | 1 | Qwen/Qwen2.5-VL-3B-Instruct | Popular VL model |
@@ -57,11 +59,13 @@ Selection constraints (keep in sync with user requirements):
 | 5 | openvla/openvla-7b | Popular openvla model |
 
 Notes:
+
 - xLLM vision requires GGUF + mmproj; most official repos ship transformers/safetensors and need conversion.
 
 ## Vision (image-to-text)
 
 ### Official reference models
+
 | Role | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | Caption | Salesforce/blip-image-captioning-base | Official BLIP captioning |
@@ -71,6 +75,7 @@ Notes:
 | Caption | Salesforce/blip2-opt-2.7b-coco | Official BLIP-2 captioning |
 
 ### Popular models (official repos only, HF Most downloads, 2026-02-01)
+
 | Rank | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | 1 | Salesforce/blip-image-captioning-base | Popular captioning |
@@ -80,11 +85,13 @@ Notes:
 | 5 | PaddlePaddle/PP-LCNet_x1_0_doc_ori | Popular document model |
 
 Notes:
+
 - xLLM vision requires GGUF + mmproj; most official repos ship transformers/safetensors and need conversion.
 
 ## Image generation (text-to-image)
 
 ### Official reference models
+
 | Role | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | SDXL | stabilityai/stable-diffusion-xl-base-1.0 | Official SDXL base |
@@ -94,6 +101,7 @@ Notes:
 | SD | stable-diffusion-v1-5/stable-diffusion-v1-5 | Official SD v1.5 |
 
 ### Popular models (official repos only, HF Most downloads, 2026-02-01)
+
 | Rank | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | 1 | stabilityai/stable-diffusion-xl-base-1.0 | Popular SDXL base |
@@ -103,11 +111,13 @@ Notes:
 | 5 | stabilityai/sdxl-turbo | Popular SDXL Turbo |
 
 Notes:
+
 - stable-diffusion.cpp supports `.safetensors` or `.ckpt` weights from official repos.
 
 ## ASR (automatic-speech-recognition)
 
 ### Official reference models
+
 | Role | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | Whisper | openai/whisper-large-v3 | Official Whisper |
@@ -117,6 +127,7 @@ Notes:
 | Whisper | openai/whisper-base | Official Whisper |
 
 ### Popular models (official repos only, HF Most downloads, 2026-02-01)
+
 | Rank | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | 1 | openai/whisper-large-v3 | Popular Whisper |
@@ -126,21 +137,25 @@ Notes:
 | 5 | openai/whisper-medium | Popular Whisper |
 
 Notes:
+
 - xLLM ASR is whisper.cpp-based and expects `.bin` or `.gguf` (official repos require conversion).
 
 ## TTS (text-to-speech)
 
 ### Official reference models
+
 | Role | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | VibeVoice | microsoft/VibeVoice-1.5B | Official VibeVoice |
 | VibeVoice | microsoft/VibeVoice-Realtime-0.5B | Official VibeVoice realtime |
 
 ### Popular models (official repos only, HF Most downloads, 2026-02-01)
+
 | Rank | Hugging Face repo | Notes |
 |------|-------------------|-------|
 | 1 | microsoft/VibeVoice-1.5B | Popular VibeVoice |
 | 2 | microsoft/VibeVoice-Realtime-0.5B | Popular VibeVoice realtime |
 
 Notes:
+
 - xLLM TTS currently supports VibeVoice only and requires `XLLM_VIBEVOICE_RUNNER`. Popular list is limited to supported models.
