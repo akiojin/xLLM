@@ -48,6 +48,7 @@ set(INTEGRATION_TEST_SOURCES
     ../../src/core/whisper_manager.cpp
     ../../src/core/onnx_tts_manager.cpp
     ../../src/core/sd_manager.cpp
+    ../../src/core/harmony_utils.cpp
 )
 
 # Use platform-specific gpu_detector source
