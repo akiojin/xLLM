@@ -6,10 +6,12 @@ if [ "${HUSKY:-}" = "0" ]; then
   exit 1
 fi
 
-if [ -d "/opt/homebrew/opt/llvm/bin" ]; then
+if [ -d "/opt/homebrew/opt/llvm@17/bin" ]; then
+  PATH="/opt/homebrew/opt/llvm@17/bin:$PATH"
+elif [ -d "/opt/homebrew/opt/llvm/bin" ]; then
   PATH="/opt/homebrew/opt/llvm/bin:$PATH"
-  export PATH
 fi
+export PATH
 
 BASE_REF=""
 if git rev-parse --verify -q origin/feature/download-progress >/dev/null; then
