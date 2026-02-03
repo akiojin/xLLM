@@ -18,7 +18,7 @@ echo "[INFO] Building ($BUILD_TYPE)"
 cmake --build "$BUILD_DIR" --config "$BUILD_TYPE"
 
 echo "[INFO] Running C++ tests"
-ctest --output-on-failure --timeout 300 --verbose --test-dir "$BUILD_DIR"
+ctest --output-on-failure --timeout 300 --verbose -C "$BUILD_TYPE" --test-dir "$BUILD_DIR"
 
 if [[ "$RUN_E2E" == "1" ]]; then
   echo "[INFO] Running real-model E2E"

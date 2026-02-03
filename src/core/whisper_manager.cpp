@@ -149,8 +149,14 @@ TranscriptionResult WhisperManager::transcribe(
     const TranscriptionParams& params) {
 
 #ifdef XLLM_TESTING
-    if (transcribe_hook_) {
-        return transcribe_hook_(model_path, audio_data, sample_rate, params);
+    std::function<TranscriptionResult(
+        const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> hook;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        hook = transcribe_hook_;
+    }
+    if (hook) {
+        return hook(model_path, audio_data, sample_rate, params);
     }
 #endif
 
@@ -371,8 +377,11 @@ WhisperManager::~WhisperManager() = default;
 
 bool WhisperManager::loadModel(const std::string& model_path) {
 #ifdef XLLM_TESTING
-    if (transcribe_hook_) {
-        return true;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (transcribe_hook_) {
+            return true;
+        }
     }
 #endif
     (void)model_path;
@@ -387,8 +396,14 @@ TranscriptionResult WhisperManager::transcribe(
     int sample_rate,
     const TranscriptionParams& params) {
 #ifdef XLLM_TESTING
-    if (transcribe_hook_) {
-        return transcribe_hook_(model_path, audio_data, sample_rate, params);
+    std::function<TranscriptionResult(
+        const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> hook;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        hook = transcribe_hook_;
+    }
+    if (hook) {
+        return hook(model_path, audio_data, sample_rate, params);
     }
 #endif
     (void)model_path;
@@ -406,8 +421,11 @@ bool WhisperManager::unloadModel(const std::string&) { return false; }
 std::vector<std::string> WhisperManager::getLoadedModels() const { return {}; }
 bool WhisperManager::loadModelIfNeeded(const std::string& model_path) {
 #ifdef XLLM_TESTING
-    if (transcribe_hook_) {
-        return true;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (transcribe_hook_) {
+            return true;
+        }
     }
 #endif
     (void)model_path;

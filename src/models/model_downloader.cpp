@@ -1064,7 +1064,14 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
         }
     } else if (format && *format == Format::Safetensors) {
         manifest["format"] = "safetensors";
-        std::vector<std::string> names = {"config.json", "tokenizer.json", selection};
+        std::vector<std::string> names;
+        if (has_sibling(siblings, "config.json")) {
+            names.push_back("config.json");
+        }
+        if (has_sibling(siblings, "tokenizer.json")) {
+            names.push_back("tokenizer.json");
+        }
+        names.push_back(selection);
         if (is_safetensors_index_filename(selection)) {
             const std::string index_path = selection;
             const std::string resolve_path = build_hf_resolve_path(base, model_id, index_path);

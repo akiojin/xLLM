@@ -15,9 +15,7 @@ jobs:
       vars.XLLM_E2E_TEXT_MODEL_REF != '' &&
       vars.XLLM_E2E_VISION_MODEL_REF != '' &&
       vars.XLLM_E2E_IMAGE_MODEL_REF != '' &&
-      vars.XLLM_E2E_ASR_MODEL_REF != '' &&
-      secrets.HF_TOKEN != '' &&
-      secrets.XLLM_VIBEVOICE_RUNNER != ''
+      vars.XLLM_E2E_ASR_MODEL_REF != ''
     runs-on: [self-hosted, macOS]
     timeout-minutes: 180
     steps:
@@ -25,6 +23,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Validate secrets
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          XLLM_VIBEVOICE_RUNNER: ${{ secrets.XLLM_VIBEVOICE_RUNNER }}
+        run: |
+          if [[ -z "${HF_TOKEN}" || -z "${XLLM_VIBEVOICE_RUNNER}" ]]; then
+            echo "[ERROR] Missing required secrets: HF_TOKEN and/or XLLM_VIBEVOICE_RUNNER" >&2
+            exit 1
+          fi
 
       - name: Configure build
         run: |

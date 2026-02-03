@@ -202,7 +202,8 @@ TEST_F(AudioSpeechIntegrationFixture, TranscriptionsReturnsJson) {
     auto res = cli.Post("/v1/audio/transcriptions", items);
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200);
-    EXPECT_EQ(res->get_header_value("Content-Type"), "application/json");
+    const auto content_type = res->get_header_value("Content-Type");
+    EXPECT_TRUE(content_type.rfind("application/json", 0) == 0) << content_type;
 
     auto j = nlohmann::json::parse(res->body);
     EXPECT_EQ(j["text"], "integration asr");

@@ -299,7 +299,12 @@ if [[ "$text_code" != "200" ]]; then
   exit 1
 fi
 jq -e '.choices[0].message.content | length > 0' "$WORKDIR/text.json" >/dev/null
-jq -e '.usage.total_tokens >= 0' "$WORKDIR/text.json" >/dev/null || true
+if ! jq -e '.usage.total_tokens >= 0' "$WORKDIR/text.json" >/dev/null; then
+  echo "[ERROR] text generation missing usage.total_tokens" >&2
+  cat "$WORKDIR/text.json" >&2
+  log_tail
+  exit 1
+fi
 
 if [[ "$STREAMING_TESTS" == "1" ]]; then
   echo "[INFO] Running text streaming..."
@@ -393,7 +398,12 @@ if [[ "$asr_code" != "200" ]]; then
   log_tail
   exit 1
 fi
-jq -e '.text | length > 0' "$WORKDIR/asr.json" >/dev/null || true
+if ! jq -e '.text | length > 0' "$WORKDIR/asr.json" >/dev/null; then
+  echo "[ERROR] ASR returned empty text" >&2
+  cat "$WORKDIR/asr.json" >&2
+  log_tail
+  exit 1
+fi
 
 echo "[INFO] Running TTS (VibeVoice)..."
 tts_body=$(jq -n --arg model "$XLLM_E2E_TTS_MODEL" '{model:$model,input:"hello",response_format:"wav"}')
