@@ -75,7 +75,6 @@ std::string getServeHelpMessage() {
     oss << "    XLLM_PORT                 HTTP server port (default: 32769)\n";
     oss << "    XLLM_BIND_ADDRESS         Bind address\n";
     oss << "    XLLM_MODELS_DIR           Model files directory\n";
-    oss << "    XLLM_CONFIG               Config file path (default: ~/.xllm/config.json)\n";
     oss << "    XLLM_LOG_LEVEL            Log level (trace|debug|info|warn|error)\n";
     oss << "    XLLM_LOG_DIR              Log directory (default: ~/.xllm/logs)\n";
     oss << "    XLLM_LOG_RETENTION_DAYS   Log retention days (default: 7)\n";

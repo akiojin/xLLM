@@ -45,7 +45,6 @@ xLLMの全機能を統合的に実装するための計画。
 | Function Calling | core/function_calling.cpp | 部分実装 |
 | Prometheus Metrics | metrics/ | 未実装 |
 | Modelfile完全互換 | - | 未実装 |
-| config.yaml | - | 未実装 |
 
 ## 実装フェーズ
 
@@ -56,10 +55,9 @@ xLLMの全機能を統合的に実装するための計画。
    - シグナルハンドリング（SIGINT/SIGTERM）
    - --port, --host オプション
 
-2. **config.yaml対応**
-   - 設定ファイルの読み込み
-   - デフォルト値の定義
-   - 環境変数オーバーライド
+2. **設定は環境変数のみ（設定ファイル廃止）**
+   - 設定ファイルの読み込みは行わない
+   - デフォルト値はコード側で保持
 
 ### Phase 2: メモリ管理強化
 

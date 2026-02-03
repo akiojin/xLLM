@@ -441,6 +441,12 @@ bool ModelSync::downloadModel(ModelDownloader& downloader,
                               const DownloadCallbacks& callbacks,
                               const std::string& filename_hint) const {
     spdlog::info("ModelSync: downloading model {}", model_id);
+    const auto dl_cfg = loadDownloadConfig();
+    downloader.setMaxRetries(dl_cfg.max_retries);
+    downloader.setBackoff(dl_cfg.backoff);
+    downloader.setChunkSize(dl_cfg.chunk_size);
+    downloader.setMaxBytesPerSec(dl_cfg.max_bytes_per_sec);
+    downloader.setTimeout(dl_cfg.timeout);
     ModelOverrides model_cfg;
     {
         std::lock_guard<std::mutex> lock(etag_mutex_);

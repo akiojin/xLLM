@@ -35,8 +35,14 @@ public:
     }
     size_t getChunkSize() const { return chunk_size_; }
     size_t getMaxBytesPerSec() const { return max_bytes_per_sec_; }
+    std::chrono::milliseconds getTimeout() const { return timeout_; }
+    int getMaxRetries() const { return max_retries_; }
+    std::chrono::milliseconds getBackoff() const { return backoff_; }
     void setChunkSize(size_t v) { chunk_size_ = v; }
     void setMaxBytesPerSec(size_t v) { max_bytes_per_sec_ = v; }
+    void setTimeout(std::chrono::milliseconds v) { if (v.count() > 0) timeout_ = v; }
+    void setMaxRetries(int v) { if (v >= 0) max_retries_ = v; }
+    void setBackoff(std::chrono::milliseconds v) { if (v.count() >= 0) backoff_ = v; }
 
 private:
     std::string fetchHfManifest(const std::string& model_id, const std::string& filename_hint);

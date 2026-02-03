@@ -15,6 +15,7 @@ struct DownloadConfig {
     size_t max_concurrency{4};
     size_t max_bytes_per_sec{0};
     size_t chunk_size{4096};
+    std::chrono::milliseconds timeout{std::chrono::milliseconds(10000)};
 };
 
 DownloadConfig loadDownloadConfig();

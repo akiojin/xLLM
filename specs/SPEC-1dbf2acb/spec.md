@@ -249,47 +249,10 @@ llama3:8b     abc123def     4.7 GB    100% GPU     4 minutes from now
 
 - **出力内容**: モデル + 全メタデータ（KVキャッシュ等を含む）
 
-## 設定ファイル
+## 設定
 
-### config.yaml
-
-場所: `~/.xllm/config.yaml`
-
-```yaml
-server:
-  port: 32769
-  host: 0.0.0.0
-  log_file: ~/.xllm/logs/xllm.log
-  log_rotation:
-    max_size: 100MB
-    max_files: 10
-  cors:
-    allowed_origins:
-      - "*"
-    allowed_methods:
-      - GET
-      - POST
-  gzip: true
-
-models:
-  directory: ~/.xllm/models
-  preload:
-    - llama3:8b
-    - mistral:7b
-  priority:
-    llama3:8b: high
-
-images:
-  directory: ~/.xllm/images
-  ttl_hours: 1
-
-gpu:
-  # 自動検出（手動設定は不要）
-
-inference:
-  idle_timeout: 300  # 秒
-  request_timeout: 60  # 秒
-```
+- 設定は環境変数のみで行う（設定ファイルは廃止）。
+- 既存の設定ファイルは読み込まない。
 
 ### Modelfile（Ollama完全互換）
 
@@ -307,7 +270,6 @@ inference:
 
 1. コマンドライン引数（最優先）
 2. 環境変数
-3. config.yaml（最低優先）
 
 ## API仕様
 

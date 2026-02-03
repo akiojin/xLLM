@@ -1257,11 +1257,20 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
 
     auto download_once = [&](size_t offset, bool use_range) -> bool {
         for (int attempt = 0; attempt <= max_retries_; ++attempt) {
-            std::ofstream ofs(out_path, std::ios::binary | (offset > 0 && use_range ? std::ios::app : std::ios::trunc));
+            size_t current_offset = offset;
+            if (use_range && offset > 0) {
+                std::error_code ec;
+                auto size = static_cast<size_t>(fs::file_size(out_path, ec));
+                if (!ec && size > 0) {
+                    current_offset = size;
+                }
+            }
+
+            std::ofstream ofs(out_path, std::ios::binary | (current_offset > 0 && use_range ? std::ios::app : std::ios::trunc));
             if (!ofs.is_open()) return false;
 
-            size_t downloaded = offset;
-            size_t total = offset;
+            size_t downloaded = current_offset;
+            size_t total = current_offset;
             std::optional<StreamingSha256> streamer;
             if (!expected_sha256.empty()) streamer.emplace();
 
@@ -1269,8 +1278,8 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
 
             httplib::Headers headers;
             apply_auth(headers);
-            if (use_range && offset > 0) {
-                headers.emplace("Range", "bytes=" + std::to_string(offset) + "-");
+            if (use_range && current_offset > 0) {
+                headers.emplace("Range", "bytes=" + std::to_string(current_offset) + "-");
             }
             auto result = client->Get(
                 url.path,
@@ -1312,8 +1321,16 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
 
             ofs.flush();
 
+            if (!result) {
+                spdlog::warn("ModelDownloader: download failed (no response) url='{}{}'",
+                             url.scheme + "://" + url.host, url.path);
+            } else if (result->status != 304 && (result->status < 200 || result->status >= 300)) {
+                spdlog::warn("ModelDownloader: download failed status={} url='{}{}'",
+                             result->status, url.scheme + "://" + url.host, url.path);
+            }
+
             if (result && (result->status == 304 || (result->status >= 200 && result->status < 300))) {
-                if (cb && total == offset) {
+                if (cb && total == current_offset) {
                     cb(downloaded, downloaded);
                 }
                 if (streamer && !expected_sha256.empty() && result->status != 304) {
