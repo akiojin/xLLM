@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-set -e
+set -u
 
 if [ "${HUSKY:-}" = "0" ]; then
   echo "HUSKY=0 is not allowed in this repo." >&2
@@ -15,33 +15,84 @@ elif git rev-parse --verify -q origin/main >/dev/null; then
   BASE_REF="origin/main"
 fi
 
-if [ -z "$BASE_REF" ]; then
-  echo "⚠️  Could not determine base ref for linting; skipping pre-push checks."
-  exit 0
-fi
+FAILURES=0
+
+run_step() {
+  desc="$1"
+  shift
+  echo "==> $desc"
+  if "$@"; then
+    echo "✅ $desc"
+  else
+    echo "❌ $desc"
+    FAILURES=1
+  fi
+  echo ""
+}
+
+require_cmd() {
+  cmd="$1"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Error: $cmd not found. Please install it." >&2
+  return 1
+}
 
 # Match CI: lint all Markdown and check commit messages in range.
 if command -v pnpm >/dev/null 2>&1; then
-  pnpm dlx markdownlint-cli2@0.13.0 "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!build"
+  run_step "Markdown lint" pnpm dlx markdownlint-cli2@0.13.0 \
+    "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!engines/safetensors.cpp" "!build"
 elif command -v npx >/dev/null 2>&1; then
-  npx -y markdownlint-cli2@0.13.0 "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!build"
+  run_step "Markdown lint" npx -y markdownlint-cli2@0.13.0 \
+    "**/*.md" "!node_modules" "!.git" "!.github" "!.worktrees" "!third_party" "!engines/safetensors.cpp" "!build"
 else
   echo "Error: pnpm or npx not found. Please install Node.js and pnpm/npm." >&2
-  exit 1
+  FAILURES=1
 fi
 
-bash .specify/scripts/checks/check-commits.sh --from "$BASE_REF" --to HEAD
-
-if command -v cmake >/dev/null 2>&1; then
-  cmake -S . -B build -DBUILD_TESTS=ON -DPORTABLE_BUILD=ON
-  cmake --build build --config Release
-  if command -v ctest >/dev/null 2>&1; then
-    ctest --output-on-failure --timeout 300 --verbose
-  else
-    echo "Error: ctest not found. Please install CMake." >&2
-    exit 1
+if command -v pnpm >/dev/null 2>&1; then
+  if [ ! -d node_modules/.pnpm ]; then
+    run_step "pnpm install (frozen)" pnpm install --frozen-lockfile
   fi
+fi
+
+if [ -n "$BASE_REF" ]; then
+  run_step "Commit lint" bash .specify/scripts/checks/check-commits.sh --from "$BASE_REF" --to HEAD
 else
-  echo "Error: cmake not found. Please install CMake." >&2
+  echo "⚠️  Could not determine base ref for commit lint; skipping."
+  echo ""
+fi
+
+if require_cmd cmake; then
+  run_step "CMake configure" cmake -S . -B build -DBUILD_TESTS=ON -DPORTABLE_BUILD=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+  run_step "CMake build (Release)" cmake --build build --config Release
+else
+  FAILURES=1
+fi
+
+if require_cmd ctest; then
+  run_step "CTest (Release)" sh -c "cd build && ctest --output-on-failure --timeout 300 --verbose -C Release"
+else
+  FAILURES=1
+fi
+
+if require_cmd run-clang-tidy; then
+  run_step "clang-tidy" sh -c "FILES=\$(find src include -type f \\( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.cxx' -o -name '*.h' -o -name '*.hpp' \\)); run-clang-tidy -p build \$FILES -quiet || (cat /tmp/run-clang-tidy.log || true; exit 1)"
+else
+  FAILURES=1
+fi
+
+if require_cmd cppcheck; then
+  run_step "cppcheck (warnings)" cppcheck --enable=warning --inline-suppr --std=c++20 \
+    -I include -I third_party/nlohmann-json/include -I third_party/cpp-httplib \
+    --suppress=missingIncludeSystem \
+    src include
+else
+  FAILURES=1
+fi
+
+if [ "$FAILURES" -ne 0 ]; then
+  echo "Pre-push checks failed."
   exit 1
 fi

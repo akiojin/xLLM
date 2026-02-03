@@ -10,6 +10,7 @@
  */
 
 #include "ggml_model.h"
+#include "debug_log.h"
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
@@ -42,13 +43,12 @@ static struct ggml_tensor* rms_norm(
 
     // Debug: print input and weight shapes for first call
     if (call_idx == 0) {
-        fprintf(stderr, "[DEBUG] rms_norm[0]: input x shape=[%lld, %lld, %lld, %lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] rms_norm[0]: input x shape=[%lld, %lld, %lld, %lld]\n",
                 (long long)x->ne[0], (long long)x->ne[1], (long long)x->ne[2], (long long)x->ne[3]);
-        fprintf(stderr, "[DEBUG] rms_norm[0]: weight shape=[%lld, %lld, %lld, %lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] rms_norm[0]: weight shape=[%lld, %lld, %lld, %lld]\n",
                 (long long)weight->ne[0], (long long)weight->ne[1], (long long)weight->ne[2], (long long)weight->ne[3]);
-        fprintf(stderr, "[DEBUG] rms_norm[0]: weight name=%s, buffer=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] rms_norm[0]: weight name=%s, buffer=%p\n",
                 weight->name, (void*)weight->buffer);
-        fflush(stderr);
     }
 
     // RMSNorm(x) = x / sqrt(mean(x^2) + eps) * weight
@@ -136,13 +136,13 @@ static bool stcpp_nan_debug_once() {
 
 static bool stcpp_readback_has_nan(struct ggml_tensor* tensor, int64_t max_values, const char* label) {
     if (!tensor || !tensor->buffer) {
-        fprintf(stderr, "[DEBUG] NAN_CHECK %s: tensor missing or no buffer\n", label ? label : "(null)");
+        STCPP_DEBUG_LOG("[DEBUG] NAN_CHECK %s: tensor missing or no buffer\n", label ? label : "(null)");
         return false;
     }
 
     const int64_t n_vals = std::min<int64_t>(max_values, ggml_nelements(tensor));
     if (n_vals <= 0) {
-        fprintf(stderr, "[DEBUG] NAN_CHECK %s: empty tensor\n", label ? label : "(null)");
+        STCPP_DEBUG_LOG("[DEBUG] NAN_CHECK %s: empty tensor\n", label ? label : "(null)");
         return false;
     }
 
@@ -165,7 +165,7 @@ static bool stcpp_readback_has_nan(struct ggml_tensor* tensor, int64_t max_value
             break;
         }
         default:
-            fprintf(stderr, "[DEBUG] NAN_CHECK %s: unsupported tensor type=%d\n", label ? label : "(null)", tensor->type);
+            STCPP_DEBUG_LOG("[DEBUG] NAN_CHECK %s: unsupported tensor type=%d\n", label ? label : "(null)", tensor->type);
             return false;
     }
 
@@ -182,7 +182,7 @@ static bool stcpp_readback_has_nan(struct ggml_tensor* tensor, int64_t max_value
     }
 
     if (has_nan || has_inf) {
-        fprintf(stderr, "[DEBUG] NAN_CHECK %s: has_nan=%d has_inf=%d first5=%.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] NAN_CHECK %s: has_nan=%d has_inf=%d first5=%.6f %.6f %.6f %.6f %.6f\n",
                 label ? label : "(null)", has_nan ? 1 : 0, has_inf ? 1 : 0,
                 data[0],
                 (n_vals > 1 ? data[1] : 0.0f),
@@ -190,7 +190,7 @@ static bool stcpp_readback_has_nan(struct ggml_tensor* tensor, int64_t max_value
                 (n_vals > 3 ? data[3] : 0.0f),
                 (n_vals > 4 ? data[4] : 0.0f));
     } else {
-        fprintf(stderr, "[DEBUG] NAN_CHECK %s: ok first5=%.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] NAN_CHECK %s: ok first5=%.6f %.6f %.6f %.6f %.6f\n",
                 label ? label : "(null)",
                 data[0],
                 (n_vals > 1 ? data[1] : 0.0f),
@@ -296,9 +296,8 @@ static void apply_rope(
     const int mode = 2;
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] apply_rope[0]: freq_base=%.1f, freq_scale=%.4f, n_rot=%d, n_ctx_orig=%d, ext=%.4f, attn=%.4f, beta_fast=%.2f, beta_slow=%.2f, mode=%d\n",
+        STCPP_DEBUG_LOG("[DEBUG] apply_rope[0]: freq_base=%.1f, freq_scale=%.4f, n_rot=%d, n_ctx_orig=%d, ext=%.4f, attn=%.4f, beta_fast=%.2f, beta_slow=%.2f, mode=%d\n",
                 freq_base, freq_scale, n_rot, n_ctx_orig, ext_factor, attn_factor, beta_fast, beta_slow, mode);
-        fflush(stderr);
     }
 
     *q = ggml_rope_ext(
@@ -341,10 +340,9 @@ static struct ggml_tensor* gqa_expand_kv(
     const int64_t n_kv_len = kv->ne[2];
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] gqa_expand_kv: kv shape=[%lld,%lld,%lld], n_head=%d, n_head_kv=%d, n_rep=%d\n",
+        STCPP_DEBUG_LOG("[DEBUG] gqa_expand_kv: kv shape=[%lld,%lld,%lld], n_head=%d, n_head_kv=%d, n_rep=%d\n",
                 (long long)kv->ne[0], (long long)kv->ne[1], (long long)kv->ne[2],
                 n_head, n_head_kv, n_rep);
-        fflush(stderr);
     }
 
     // Strategy: For each KV head, repeat it n_rep times using views and concat
@@ -381,10 +379,9 @@ static struct ggml_tensor* gqa_expand_kv(
         );
 
         if (layer_idx == 0) {
-            fprintf(stderr, "[DEBUG] gqa_expand_kv: kv_head[%d] repeated shape=[%lld,%lld,%lld]\n",
+            STCPP_DEBUG_LOG("[DEBUG] gqa_expand_kv: kv_head[%d] repeated shape=[%lld,%lld,%lld]\n",
                     kv_h, (long long)kv_head_repeated->ne[0],
                     (long long)kv_head_repeated->ne[1], (long long)kv_head_repeated->ne[2]);
-            fflush(stderr);
         }
 
         // Concatenate with previous result along dimension 1 (heads)
@@ -396,9 +393,8 @@ static struct ggml_tensor* gqa_expand_kv(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] gqa_expand_kv: result shape=[%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] gqa_expand_kv: result shape=[%lld,%lld,%lld]\n",
                 (long long)result->ne[0], (long long)result->ne[1], (long long)result->ne[2]);
-        fflush(stderr);
     }
 
     return result;
@@ -429,41 +425,37 @@ static struct ggml_tensor* multi_head_attention(
     int32_t sliding_window
 ) {
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: entered, n_head=%d, n_head_kv=%d, n_embd=%d, n_rot=%d\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: entered, n_head=%d, n_head_kv=%d, n_embd=%d, n_rot=%d\n",
                 n_head, n_head_kv, n_embd, n_rot);
-        fflush(stderr);
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: head_dim=%d, computing Q,K,V projections\n", head_dim);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: head_dim=%d, computing Q,K,V projections\n", head_dim);
     }
 
     // Q, K, V projections
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: wq shape=[%lld, %lld], wk shape=[%lld, %lld], wv shape=[%lld, %lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: wq shape=[%lld, %lld], wk shape=[%lld, %lld], wv shape=[%lld, %lld]\n",
                 (long long)layer.wq->ne[0], (long long)layer.wq->ne[1],
                 (long long)layer.wk->ne[0], (long long)layer.wk->ne[1],
                 (long long)layer.wv->ne[0], (long long)layer.wv->ne[1]);
-        fprintf(stderr, "[DEBUG] MHA[0]: cur shape=[%lld, %lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: cur shape=[%lld, %lld]\n",
                 (long long)cur->ne[0], (long long)cur->ne[1]);
-        fflush(stderr);
     }
     struct ggml_tensor* q = ggml_mul_mat(ctx, layer.wq, cur);
     struct ggml_tensor* k = ggml_mul_mat(ctx, layer.wk, cur);
     struct ggml_tensor* v = ggml_mul_mat(ctx, layer.wv, cur);
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: q shape=[%lld, %lld], k shape=[%lld, %lld], v shape=[%lld, %lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: q shape=[%lld, %lld], k shape=[%lld, %lld], v shape=[%lld, %lld]\n",
                 (long long)q->ne[0], (long long)q->ne[1],
                 (long long)k->ne[0], (long long)k->ne[1],
                 (long long)v->ne[0], (long long)v->ne[1]);
-        fflush(stderr);
     }
 
     // Add biases if present (e.g., Qwen2)
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: has_bq=%d, has_bk=%d, has_bv=%d, bq=%p, bk=%p, bv=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: has_bq=%d, has_bk=%d, has_bv=%d, bq=%p, bk=%p, bv=%p\n",
                 layer.has_bq, layer.has_bk, layer.has_bv,
                 (void*)layer.bq, (void*)layer.bk, (void*)layer.bv);
 #if STCPP_DEBUG_READBACK
@@ -471,17 +463,16 @@ static struct ggml_tensor* multi_head_attention(
         if (layer.has_bq && layer.bq && layer.bq->buffer) {
             std::vector<float> bq_vals(5);
             ggml_backend_tensor_get(layer.bq, bq_vals.data(), 0, 5 * sizeof(float));
-            fprintf(stderr, "[DEBUG] MHA[0]: bq first 5: %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] MHA[0]: bq first 5: %.6f %.6f %.6f %.6f %.6f\n",
                     bq_vals[0], bq_vals[1], bq_vals[2], bq_vals[3], bq_vals[4]);
         }
         if (layer.has_bk && layer.bk && layer.bk->buffer) {
             std::vector<float> bk_vals(5);
             ggml_backend_tensor_get(layer.bk, bk_vals.data(), 0, 5 * sizeof(float));
-            fprintf(stderr, "[DEBUG] MHA[0]: bk first 5: %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] MHA[0]: bk first 5: %.6f %.6f %.6f %.6f %.6f\n",
                     bk_vals[0], bk_vals[1], bk_vals[2], bk_vals[3], bk_vals[4]);
         }
 #endif
-        fflush(stderr);
     }
     if (layer.has_bq && layer.bq) {
         q = ggml_add(ctx, q, layer.bq);
@@ -512,10 +503,9 @@ static struct ggml_tensor* multi_head_attention(
     if (layer_idx == 0) {
         ggml_set_name(q, "layer0_q_before_rope");
         ggml_set_output(q);
-        fprintf(stderr, "[DEBUG] MHA[0]: reshaped, applying RoPE\n");
-        fprintf(stderr, "[DEBUG] MHA[0]: calling apply_rope with ctx=%p, q=%p, k=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: reshaped, applying RoPE\n");
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: calling apply_rope with ctx=%p, q=%p, k=%p\n",
                 (void*)ctx, (void*)q, (void*)k);
-        fflush(stderr);
     }
 
     // Apply RoPE
@@ -523,8 +513,7 @@ static struct ggml_tensor* multi_head_attention(
                freq_base, freq_scale, rope_ext_factor, rope_attn_factor, rope_beta_fast, rope_beta_slow,
                layer_idx);
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: apply_rope returned\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: apply_rope returned\n");
     }
 
     // Debug: mark Q and K after RoPE for inspection
@@ -536,17 +525,15 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: RoPE applied\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: RoPE applied\n");
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: storing K,V in cache\n");
-        fprintf(stderr, "[DEBUG] MHA[0]: k_cache dims=[%lld,%lld,%lld,%lld], nb=[%zu,%zu,%zu,%zu]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: storing K,V in cache\n");
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: k_cache dims=[%lld,%lld,%lld,%lld], nb=[%zu,%zu,%zu,%zu]\n",
                 (long long)k_cache->ne[0], (long long)k_cache->ne[1],
                 (long long)k_cache->ne[2], (long long)k_cache->ne[3],
                 k_cache->nb[0], k_cache->nb[1], k_cache->nb[2], k_cache->nb[3]);
-        fflush(stderr);
     }
 
     // Store K, V in cache
@@ -567,8 +554,7 @@ static struct ggml_tensor* multi_head_attention(
     );
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: cache views created, copying K,V\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: cache views created, copying K,V\n");
     }
 
     // Copy current K, V to cache
@@ -585,13 +571,11 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: K,V copied, getting full cache view\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: K,V copied, getting full cache view\n");
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: K,V copied, getting full cache view\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: K,V copied, getting full cache view\n");
     }
 
     // Get full K, V from cache (including past)
@@ -656,23 +640,21 @@ static struct ggml_tensor* multi_head_attention(
         V = ggml_cast(ctx, V, GGML_TYPE_F32);
 
         if (layer_idx == 0) {
-            fprintf(stderr, "[DEBUG] MHA[0]: decode mode, K_past shape=[%lld,%lld,%lld], K shape=[%lld,%lld,%lld]\n",
+            STCPP_DEBUG_LOG("[DEBUG] MHA[0]: decode mode, K_past shape=[%lld,%lld,%lld], K shape=[%lld,%lld,%lld]\n",
                     (long long)K_past->ne[0], (long long)K_past->ne[1], (long long)K_past->ne[2],
                     (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2]);
-            fflush(stderr);
         }
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: handling GQA (n_head=%d, n_head_kv=%d)\n", n_head, n_head_kv);
-        fprintf(stderr, "[DEBUG] MHA[0]: V (before repeat) view_src=%p, buffer=%p, n_past=%d\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: handling GQA (n_head=%d, n_head_kv=%d)\n", n_head, n_head_kv);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: V (before repeat) view_src=%p, buffer=%p, n_past=%d\n",
                 (void*)V->view_src, (void*)V->buffer, n_past);
-        fprintf(stderr, "[DEBUG] MHA[0]: k_cache->buffer=%p, v_cache->buffer=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: k_cache->buffer=%p, v_cache->buffer=%p\n",
                 (void*)k_cache->buffer, (void*)v_cache->buffer);
         // Mark V before GQA to see its values
         ggml_set_name(V, "layer0_v_before_gqa");
         ggml_set_output(V);
-        fflush(stderr);
     }
 
     // Handle GQA: expand K, V heads using proper interleaved pattern
@@ -689,21 +671,19 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: computing attention scores\n");
-        fprintf(stderr, "[DEBUG] MHA[0]: q shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: computing attention scores\n");
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: q shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)q->ne[0], (long long)q->ne[1], (long long)q->ne[2], (long long)q->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: K shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: K shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
-        fflush(stderr);
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: computing attention scores\n");
-        fprintf(stderr, "[DEBUG] MHA[0]: q shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: computing attention scores\n");
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: q shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)q->ne[0], (long long)q->ne[1], (long long)q->ne[2], (long long)q->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: K shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: K shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
-        fflush(stderr);
     }
 
     // Compute attention scores: Q @ K^T
@@ -716,20 +696,18 @@ static struct ggml_tensor* multi_head_attention(
     K = ggml_permute(ctx, K, 0, 2, 1, 3);  // [head_dim, n_kv, n_head, 1]
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: q shape=[%lld,%lld,%lld,%lld] (after permute)\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: q shape=[%lld,%lld,%lld,%lld] (after permute)\n",
                 (long long)q->ne[0], (long long)q->ne[1], (long long)q->ne[2], (long long)q->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: K shape=[%lld,%lld,%lld,%lld] (after permute)\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: K shape=[%lld,%lld,%lld,%lld] (after permute)\n",
                 (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
-        fflush(stderr);
     }
 
     // scores = q @ K^T: [n_kv, n_tokens, n_head]
     struct ggml_tensor* scores = ggml_mul_mat(ctx, K, q);
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: scores shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: scores shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)scores->ne[0], (long long)scores->ne[1], (long long)scores->ne[2], (long long)scores->ne[3]);
-        fflush(stderr);
     }
 
     // Scale
@@ -746,11 +724,10 @@ static struct ggml_tensor* multi_head_attention(
     // ggml_diag_mask_inf masks where key_pos (ne[0]) > n_past + query_pos (ne[1])
     // No permute needed - scores already has the correct shape!
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: causal mask: n_past=%d, n_tokens=%d, n_kv=%d\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: causal mask: n_past=%d, n_tokens=%d, n_kv=%d\n",
                 n_past, n_tokens, n_past + n_tokens);
-        fprintf(stderr, "[DEBUG] MHA[0]: scores shape before mask=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: scores shape before mask=[%lld,%lld,%lld,%lld]\n",
                 (long long)scores->ne[0], (long long)scores->ne[1], (long long)scores->ne[2], (long long)scores->ne[3]);
-        fflush(stderr);
     }
 
     // Debug: mark scores before mask
@@ -774,8 +751,7 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: scores computed, applying to values\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: scores computed, applying to values\n");
     }
 
     // Apply attention to values: scores @ V
@@ -784,11 +760,10 @@ static struct ggml_tensor* multi_head_attention(
     // We need: attn_out = scores @ V -> [head_dim, n_tokens, n_head]
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: scores shape=[%lld,%lld,%lld,%lld] (for V matmul)\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: scores shape=[%lld,%lld,%lld,%lld] (for V matmul)\n",
                 (long long)scores->ne[0], (long long)scores->ne[1], (long long)scores->ne[2], (long long)scores->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: V shape=[%lld,%lld,%lld,%lld] (before permute)\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: V shape=[%lld,%lld,%lld,%lld] (before permute)\n",
                 (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
-        fflush(stderr);
     }
 
     // For ggml_mul_mat(a, b) = b @ a^T:
@@ -809,8 +784,7 @@ static struct ggml_tensor* multi_head_attention(
     //   result->ne[3] = V->ne[3] = 1 (batch)
     // Result: [31, 64, 14, 1]
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: V permute params=(1,2,0,3)\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: V permute params=(1,2,0,3)\n");
     }
     V = ggml_cont(ctx, ggml_permute(ctx, V, 1, 2, 0, 3));
 
@@ -821,11 +795,10 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: scores shape=[%lld,%lld,%lld,%lld] (for V matmul)\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: scores shape=[%lld,%lld,%lld,%lld] (for V matmul)\n",
                 (long long)scores->ne[0], (long long)scores->ne[1], (long long)scores->ne[2], (long long)scores->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: V shape=[%lld,%lld,%lld,%lld] (after permute)\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: V shape=[%lld,%lld,%lld,%lld] (after permute)\n",
                 (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
-        fflush(stderr);
     }
 
     // ggml_mul_mat(V, scores) = scores @ V^T
@@ -841,11 +814,10 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out_raw shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out_raw shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->ne[0], (long long)attn_out->ne[1], (long long)attn_out->ne[2], (long long)attn_out->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out_raw strides=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out_raw strides=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->nb[0], (long long)attn_out->nb[1], (long long)attn_out->nb[2], (long long)attn_out->nb[3]);
-        fflush(stderr);
     }
 
     // attn_out has shape [head_dim, n_tokens, n_head] = [64, 20, 14]
@@ -864,11 +836,10 @@ static struct ggml_tensor* multi_head_attention(
     // permute(0, 2, 1, 3) maps: result[0]=in[0], result[2]=in[1], result[1]=in[2]
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out before permute shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out before permute shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->ne[0], (long long)attn_out->ne[1], (long long)attn_out->ne[2], (long long)attn_out->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out before permute strides=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out before permute strides=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->nb[0], (long long)attn_out->nb[1], (long long)attn_out->nb[2], (long long)attn_out->nb[3]);
-        fflush(stderr);
     }
 
     // Permute to [head_dim, n_head, n_tokens] and make contiguous
@@ -877,11 +848,10 @@ static struct ggml_tensor* multi_head_attention(
     if (layer_idx == 0) {
         ggml_set_name(attn_out, "layer0_attn_after_permute");
         ggml_set_output(attn_out);
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out after permute shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out after permute shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->ne[0], (long long)attn_out->ne[1], (long long)attn_out->ne[2], (long long)attn_out->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out after permute strides=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out after permute strides=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->nb[0], (long long)attn_out->nb[1], (long long)attn_out->nb[2], (long long)attn_out->nb[3]);
-        fflush(stderr);
     }
 
     // Reshape to [q_dim, n_tokens] (q_dim = n_head * head_dim)
@@ -889,11 +859,10 @@ static struct ggml_tensor* multi_head_attention(
     attn_out = ggml_reshape_2d(ctx, attn_out, q_dim, n_tokens);
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out after reshape shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out after reshape shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->ne[0], (long long)attn_out->ne[1], (long long)attn_out->ne[2], (long long)attn_out->ne[3]);
-        fprintf(stderr, "[DEBUG] MHA[0]: attn_out after reshape strides=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: attn_out after reshape strides=[%lld,%lld,%lld,%lld]\n",
                 (long long)attn_out->nb[0], (long long)attn_out->nb[1], (long long)attn_out->nb[2], (long long)attn_out->nb[3]);
-        fflush(stderr);
     }
 
     // Debug: mark attention output before o_proj
@@ -912,10 +881,9 @@ static struct ggml_tensor* multi_head_attention(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] MHA[0]: done\n");
+        STCPP_DEBUG_LOG("[DEBUG] MHA[0]: done\n");
         ggml_set_name(attn_out, "layer0_mha_output");
         ggml_set_output(attn_out);
-        fflush(stderr);
     }
 
     return attn_out;
@@ -1131,15 +1099,14 @@ static struct ggml_tensor* build_layer(
     int32_t layer_idx
 ) {
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: cur shape=[%lld, %lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: cur shape=[%lld, %lld]\n",
                 (long long)cur->ne[0], (long long)cur->ne[1]);
-        fprintf(stderr, "[DEBUG] build_layer[0]: attn_norm=%p, wq=%p, wk=%p, wv=%p, wo=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: attn_norm=%p, wq=%p, wk=%p, wv=%p, wo=%p\n",
                 (void*)layer.attn_norm, (void*)layer.wq, (void*)layer.wk, (void*)layer.wv, (void*)layer.wo);
-        fprintf(stderr, "[DEBUG] build_layer[0]: ffn_norm=%p, gate=%p, up=%p, down=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: ffn_norm=%p, gate=%p, up=%p, down=%p\n",
                 (void*)layer.ffn_norm, (void*)layer.ffn_gate, (void*)layer.ffn_up, (void*)layer.ffn_down);
-        fprintf(stderr, "[DEBUG] build_layer[0]: k_cache=%p, v_cache=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: k_cache=%p, v_cache=%p\n",
                 (void*)k_cache, (void*)v_cache);
-        fflush(stderr);
     }
 
     // Save input tensor for residual connection
@@ -1152,15 +1119,13 @@ static struct ggml_tensor* build_layer(
 
     if (layer_idx == 0) {
         ggml_set_name(residual, "layer0_residual_scaled");
-        fprintf(stderr, "[DEBUG] build_layer[0]: input tensor=%p (name=%s)\n", (void*)cur, cur->name);
-        fprintf(stderr, "[DEBUG] build_layer[0]: residual tensor=%p (scaled copy)\n", (void*)residual);
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling rms_norm (attn)\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: input tensor=%p (name=%s)\n", (void*)cur, cur->name);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: residual tensor=%p (scaled copy)\n", (void*)residual);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling rms_norm (attn)\n");
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling rms_norm (attn)\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling rms_norm (attn)\n");
     }
 
     // Pre-attention RMSNorm
@@ -1170,13 +1135,11 @@ static struct ggml_tensor* build_layer(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling multi_head_attention\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling multi_head_attention\n");
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling multi_head_attention\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling multi_head_attention\n");
     }
 
     int32_t sliding_window = 0;
@@ -1207,13 +1170,12 @@ static struct ggml_tensor* build_layer(
 
     if (layer_idx == 0) {
         ggml_set_name(cur, "layer0_attn_raw");  // attention output before residual
-        fprintf(stderr, "[DEBUG] build_layer[0]: attention done, adding residual\n");
-        fprintf(stderr, "[DEBUG] build_layer[0]: cur tensor=%p shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: attention done, adding residual\n");
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: cur tensor=%p shape=[%lld,%lld,%lld,%lld]\n",
                 (void*)cur, (long long)cur->ne[0], (long long)cur->ne[1], (long long)cur->ne[2], (long long)cur->ne[3]);
-        fprintf(stderr, "[DEBUG] build_layer[0]: residual tensor=%p shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: residual tensor=%p shape=[%lld,%lld,%lld,%lld]\n",
                 (void*)residual, (long long)residual->ne[0], (long long)residual->ne[1],
                 (long long)residual->ne[2], (long long)residual->ne[3]);
-        fflush(stderr);
     }
     if (layer_idx == 3) {
         ggml_set_name(cur, "layer3_attn_raw");
@@ -1222,11 +1184,10 @@ static struct ggml_tensor* build_layer(
     // Residual connection #1: attention_output + input
     cur = ggml_add(ctx, cur, residual);
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: ggml_add result tensor=%p shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: ggml_add result tensor=%p shape=[%lld,%lld,%lld,%lld]\n",
                 (void*)cur, (long long)cur->ne[0], (long long)cur->ne[1], (long long)cur->ne[2], (long long)cur->ne[3]);
-        fprintf(stderr, "[DEBUG] build_layer[0]: ggml_add->src[0]=%p, src[1]=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: ggml_add->src[0]=%p, src[1]=%p\n",
                 (void*)cur->src[0], (void*)cur->src[1]);
-        fflush(stderr);
     }
     // Mark attention+residual output to prevent buffer reuse (applies to ALL layers)
     ggml_set_output(cur);
@@ -1247,13 +1208,11 @@ static struct ggml_tensor* build_layer(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling rms_norm (ffn)\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling rms_norm (ffn)\n");
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling rms_norm (ffn)\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling rms_norm (ffn)\n");
     }
 
     // Pre-FFN RMSNorm
@@ -1270,13 +1229,11 @@ static struct ggml_tensor* build_layer(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling swiglu_ffn\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling swiglu_ffn\n");
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: calling swiglu_ffn\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: calling swiglu_ffn\n");
     }
 
     // FFN
@@ -1299,21 +1256,19 @@ static struct ggml_tensor* build_layer(
     }
 
     if (layer_idx == 0) {
-        fprintf(stderr, "[DEBUG] build_layer[0]: ffn done, adding residual\n");
-        fprintf(stderr, "[DEBUG] build_layer[0]: cur (ffn_out)=%p, residual=%p\n", (void*)cur, (void*)residual);
-        fprintf(stderr, "[DEBUG] build_layer[0]: cur->ne=[%lld,%lld], residual->ne=[%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: ffn done, adding residual\n");
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: cur (ffn_out)=%p, residual=%p\n", (void*)cur, (void*)residual);
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: cur->ne=[%lld,%lld], residual->ne=[%lld,%lld]\n",
                 (long long)cur->ne[0], (long long)cur->ne[1],
                 (long long)residual->ne[0], (long long)residual->ne[1]);
-        fflush(stderr);
     }
 
     // Residual connection #2: ffn_output + attention_output
     cur = ggml_add(ctx, cur, residual);
     if (layer_idx == 0) {
         ggml_set_name(cur, "layer0_output");
-        fprintf(stderr, "[DEBUG] build_layer[0]: after ggml_add, cur=%p, src[0]=%p, src[1]=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_layer[0]: after ggml_add, cur=%p, src[0]=%p, src[1]=%p\n",
                 (void*)cur, (void*)cur->src[0], (void*)cur->src[1]);
-        fflush(stderr);
     }
     if (layer_idx <= 4 || (layer_idx % 4) == 0 || layer_idx == hparams.n_layer - 1) {
         char layer_name[64];
@@ -1335,21 +1290,18 @@ struct ggml_cgraph* build_compute_graph(
     // Reset RMS debug counter for each new graph
     g_rms_debug_counter = 0;
 
-    fprintf(stderr, "[DEBUG] build_compute_graph: entered\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: entered\n");
 
     GgmlModel* model = ctx->model;
     const ModelHParams& hparams = model->hparams;
     const ModelTensors& tensors = model->tensors;
 
-    fprintf(stderr, "[DEBUG] build_compute_graph: n_layer=%d, n_embd=%d, n_vocab=%d, norm_eps=%e\n",
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: n_layer=%d, n_embd=%d, n_vocab=%d, norm_eps=%e\n",
             hparams.n_layer, hparams.n_embd, hparams.n_vocab, hparams.norm_eps);
-    fflush(stderr);
 
     // Estimate buffer size for compute
     size_t compute_size = estimate_compute_buffer_size(hparams, ctx->kv_size, n_tokens);
-    fprintf(stderr, "[DEBUG] build_compute_graph: compute_size=%zu bytes\n", compute_size);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: compute_size=%zu bytes\n", compute_size);
 
     struct ggml_init_params graph_params = {
         .mem_size = compute_size,
@@ -1368,12 +1320,10 @@ struct ggml_cgraph* build_compute_graph(
 
     struct ggml_context* ctx_graph = ggml_init(graph_params);
     if (!ctx_graph) {
-        fprintf(stderr, "[DEBUG] build_compute_graph: ggml_init failed\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: ggml_init failed\n");
         return nullptr;
     }
-    fprintf(stderr, "[DEBUG] build_compute_graph: ggml_init succeeded\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: ggml_init succeeded\n");
 
     // Create embedding input tensor directly (data will be set in forward_pass)
     // We don't use ggml_get_rows because the graph allocator reuses inp_tokens buffer
@@ -1385,15 +1335,13 @@ struct ggml_cgraph* build_compute_graph(
     // allocator may reuse the buffer for intermediate computations during graph_compute,
     // corrupting the embedding values before they can be processed.
     ggml_set_output(cur);
-    fprintf(stderr, "[DEBUG] build_compute_graph: embedding input tensor created [%d, %d] (marked as input+output)\n",
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: embedding input tensor created [%d, %d] (marked as input+output)\n",
             hparams.n_embd, n_tokens);
-    fflush(stderr);
 
     // Process each transformer layer
     for (int i = 0; i < hparams.n_layer; ++i) {
         if (i % 4 == 0) {
-            fprintf(stderr, "[DEBUG] build_compute_graph: processing layer %d/%d\n", i, hparams.n_layer);
-            fflush(stderr);
+            STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: processing layer %d/%d\n", i, hparams.n_layer);
         }
         cur = build_layer(
             ctx_graph, cur,
@@ -1403,8 +1351,7 @@ struct ggml_cgraph* build_compute_graph(
             hparams, i
         );
     }
-    fprintf(stderr, "[DEBUG] build_compute_graph: all layers processed\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: all layers processed\n");
 
     // Debug: mark last layer output (before final_norm)
     ggml_set_name(cur, "last_layer_output");
@@ -1420,21 +1367,18 @@ struct ggml_cgraph* build_compute_graph(
     if (tensors.output && tensors.output->buffer) {
         std::vector<float> output_data(5);
         ggml_backend_tensor_get(tensors.output, output_data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] build_compute_graph: output tensor first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: output tensor first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 output_data[0], output_data[1], output_data[2], output_data[3], output_data[4]);
-        fflush(stderr);
     }
 #endif
     cur = ggml_mul_mat(ctx_graph, tensors.output, cur);
-    fprintf(stderr, "[DEBUG] build_compute_graph: output tensor ne=[%lld, %lld], output_norm ne=[%lld]\n",
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: output tensor ne=[%lld, %lld], output_norm ne=[%lld]\n",
             (long long)tensors.output->ne[0], (long long)tensors.output->ne[1],
             (long long)tensors.output_norm->ne[0]);
-    fflush(stderr);
 
     ggml_set_name(cur, "logits");
     ggml_set_output(cur);  // Mark as output so allocator will allocate it
-    fprintf(stderr, "[DEBUG] build_compute_graph: logits computed (marked as output)\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: logits computed (marked as output)\n");
 
     // Build graph with a larger node budget for MoE graphs
     const size_t graph_size = GGML_DEFAULT_GRAPH_SIZE * (hparams.use_moe ? 32 : 8);
@@ -1446,15 +1390,13 @@ struct ggml_cgraph* build_compute_graph(
     // K and V are views of k_cache/v_cache, not of k_cpy/v_cpy.
     // Without this, the copies won't be executed and KV cache won't be populated.
     auto& copy_storage = get_copy_storage();
-    fprintf(stderr, "[DEBUG] build_compute_graph: adding %d KV cache copy operations to graph\n",
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: adding %d KV cache copy operations to graph\n",
             copy_storage.count);
-    fflush(stderr);
     for (int i = 0; i < copy_storage.count; ++i) {
         ggml_build_forward_expand(graph, copy_storage.tensors[i]);
     }
 
-    fprintf(stderr, "[DEBUG] build_compute_graph: graph built, returning\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] build_compute_graph: graph built, returning\n");
 
     return graph;
 }
@@ -1468,8 +1410,7 @@ bool forward_pass(
     float* logits,
     std::string& error
 ) {
-    fprintf(stderr, "[DEBUG] forward_pass: starting, n_tokens=%d, n_past=%d\n", n_tokens, n_past);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: starting, n_tokens=%d, n_past=%d\n", n_tokens, n_past);
 
     if (!ctx || !ctx->model) {
         error = "Invalid context";
@@ -1482,8 +1423,7 @@ bool forward_pass(
         return false;
     }
 
-    fprintf(stderr, "[DEBUG] forward_pass: building compute graph\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: building compute graph\n");
 
     // Build compute graph
     struct ggml_cgraph* graph = build_compute_graph(ctx, tokens, n_tokens, n_past);
@@ -1492,14 +1432,12 @@ bool forward_pass(
         return false;
     }
 
-    fprintf(stderr, "[DEBUG] forward_pass: graph built, n_nodes=%d\n", ggml_graph_n_nodes(graph));
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: graph built, n_nodes=%d\n", ggml_graph_n_nodes(graph));
 
     // Get backend
     ggml_backend_t backend = ctx->model->backend;
 
-    fprintf(stderr, "[DEBUG] forward_pass: creating graph allocator\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: creating graph allocator\n");
 
     // Create graph allocator for the backend
     ggml_gallocr_t allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend));
@@ -1522,8 +1460,7 @@ bool forward_pass(
         return false;
     }
 
-    fprintf(stderr, "[DEBUG] forward_pass: graph tensors allocated\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: graph tensors allocated\n");
 
     // Set embedding input: copy embeddings directly from tok_embd to emb_input tensor
     struct ggml_tensor* emb_input = ggml_graph_get_tensor(graph, "emb_input");
@@ -1539,9 +1476,8 @@ bool forward_pass(
             return false;
         }
 
-        fprintf(stderr, "[DEBUG] forward_pass: setting embedding input for %d tokens\n", n_tokens);
-        fprintf(stderr, "[DEBUG] forward_pass: token[0]=%d, tok_embd nb[1]=%zu\n", tokens[0], tok_embd->nb[1]);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: setting embedding input for %d tokens\n", n_tokens);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: token[0]=%d, tok_embd nb[1]=%zu\n", tokens[0], tok_embd->nb[1]);
 
         // Allocate buffer for all token embeddings
         std::vector<float> emb_buffer(n_embd * n_tokens);
@@ -1591,8 +1527,7 @@ bool forward_pass(
 
     // Set positions tensors data after allocation
     auto& positions_storage = get_positions_storage();
-    fprintf(stderr, "[DEBUG] forward_pass: setting %d positions tensors\n", positions_storage.count);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: setting %d positions tensors\n", positions_storage.count);
     for (int i = 0; i < positions_storage.count; ++i) {
         const auto& info = positions_storage.tensors[i];
         if (!info.tensor || !info.tensor->buffer) {
@@ -1607,8 +1542,7 @@ bool forward_pass(
         }
         ggml_backend_tensor_set(info.tensor, pos_data.data(), 0, info.n_tokens * sizeof(int32_t));
     }
-    fprintf(stderr, "[DEBUG] forward_pass: positions tensors set\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: positions tensors set\n");
 
     // Set causal mask tensors data after allocation
     auto& mask_storage = get_causal_mask_storage();
@@ -1652,15 +1586,13 @@ bool forward_pass(
         if (emb_pre && emb_pre->buffer) {
             std::vector<float> data(5);
             ggml_backend_tensor_get(emb_pre, data.data(), 0, 5 * sizeof(float));
-            fprintf(stderr, "[DEBUG] BEFORE compute: emb_input data=%p, first 5: %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] BEFORE compute: emb_input data=%p, first 5: %.6f %.6f %.6f %.6f %.6f\n",
                     emb_pre->data, data[0], data[1], data[2], data[3], data[4]);
         }
-        fflush(stderr);
     }
 #endif
 
-    fprintf(stderr, "[DEBUG] forward_pass: starting backend compute\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: starting backend compute\n");
 
     // Run computation
     enum ggml_status status = ggml_backend_graph_compute(backend, graph);
@@ -1671,14 +1603,13 @@ bool forward_pass(
         return false;
     }
 
-    fprintf(stderr, "[DEBUG] forward_pass: backend compute done\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: backend compute done\n");
 
     if (stcpp_nan_debug_once()) {
         auto check_tensor = [&](const char* name, int64_t max_vals) {
             struct ggml_tensor* t = ggml_graph_get_tensor(graph, name);
             if (!t) {
-                fprintf(stderr, "[DEBUG] NAN_CHECK %s: tensor not found\n", name);
+                STCPP_DEBUG_LOG("[DEBUG] NAN_CHECK %s: tensor not found\n", name);
                 return false;
             }
             return stcpp_readback_has_nan(t, max_vals, name);
@@ -1778,9 +1709,8 @@ bool forward_pass(
         }
 
         if (!nan_found) {
-            fprintf(stderr, "[DEBUG] NAN_CHECK: no NaNs detected in sampled tensors\n");
+            STCPP_DEBUG_LOG("[DEBUG] NAN_CHECK: no NaNs detected in sampled tensors\n");
         }
-        fflush(stderr);
     }
 
     // Debug: check KV cache contents after compute
@@ -1789,23 +1719,21 @@ bool forward_pass(
         // Read first 10 values from k_cache (layer 0, position 0)
         std::vector<ggml_fp16_t> k_data(10);
         ggml_backend_tensor_get(ctx->k_cache, k_data.data(), 0, 10 * sizeof(ggml_fp16_t));
-        fprintf(stderr, "[DEBUG] forward_pass: k_cache after compute (layer0, pos0-9): ");
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: k_cache after compute (layer0, pos0-9): ");
         for (int i = 0; i < 10; ++i) {
             fprintf(stderr, "%.6f ", ggml_fp16_to_fp32(k_data[i]));
         }
         fprintf(stderr, "\n");
-        fflush(stderr);
     }
     if (ctx->v_cache && ctx->v_cache->buffer && n_tokens > 0) {
         // Read first 10 values from v_cache (layer 0, position 0)
         std::vector<ggml_fp16_t> v_data(10);
         ggml_backend_tensor_get(ctx->v_cache, v_data.data(), 0, 10 * sizeof(ggml_fp16_t));
-        fprintf(stderr, "[DEBUG] forward_pass: v_cache after compute (layer0, pos0-9): ");
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: v_cache after compute (layer0, pos0-9): ");
         for (int i = 0; i < 10; ++i) {
             fprintf(stderr, "%.6f ", ggml_fp16_to_fp32(v_data[i]));
         }
         fprintf(stderr, "\n");
-        fflush(stderr);
     }
 
     // Debug: check embeddings tensor after compute
@@ -1813,11 +1741,10 @@ bool forward_pass(
     if (emb_tensor && emb_tensor->buffer) {
         std::vector<float> emb_data(5);
         ggml_backend_tensor_get(emb_tensor, emb_data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: emb_input tensor=%p, data=%p, buffer=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: emb_input tensor=%p, data=%p, buffer=%p\n",
                 (void*)emb_tensor, emb_tensor->data, (void*)emb_tensor->buffer);
-        fprintf(stderr, "[DEBUG] forward_pass: emb_input first 5 values after compute: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: emb_input first 5 values after compute: %.6f %.6f %.6f %.6f %.6f\n",
                 emb_data[0], emb_data[1], emb_data[2], emb_data[3], emb_data[4]);
-        fflush(stderr);
     }
 
     // Debug: check final_norm tensor after compute
@@ -1825,9 +1752,8 @@ bool forward_pass(
     if (final_norm_tensor && final_norm_tensor->buffer) {
         std::vector<float> norm_data(5);
         ggml_backend_tensor_get(final_norm_tensor, norm_data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: final_norm first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: final_norm first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
                 norm_data[0], norm_data[1], norm_data[2], norm_data[3], norm_data[4]);
-        fflush(stderr);
     }
 
     // Debug: check RMS norm intermediate tensors
@@ -1836,7 +1762,7 @@ bool forward_pass(
     struct ggml_tensor* debug_rms_mul = ggml_graph_get_tensor(graph, "debug_rms_mul");
     struct ggml_tensor* layer0_attn_norm = ggml_graph_get_tensor(graph, "layer0_attn_norm");
 
-    fprintf(stderr, "[DEBUG] forward_pass: debug_rms_raw=%p, debug_rms_cont=%p, debug_rms_mul=%p\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: debug_rms_raw=%p, debug_rms_cont=%p, debug_rms_mul=%p\n",
             (void*)debug_rms_raw, (void*)debug_rms_cont, (void*)debug_rms_mul);
 
     // Print RMS norm raw output (before ggml_cont, before weight multiplication)
@@ -1844,37 +1770,32 @@ bool forward_pass(
     if (debug_rms_raw && debug_rms_raw->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(debug_rms_raw, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: debug_rms_raw (ggml_rms_norm output, BEFORE cont/weight) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: debug_rms_raw (ggml_rms_norm output, BEFORE cont/weight) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     }
 
     if (debug_rms_cont && debug_rms_cont->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(debug_rms_cont, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: debug_rms_cont (after ggml_cont) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: debug_rms_cont (after ggml_cont) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     }
 
     if (debug_rms_mul && debug_rms_mul->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(debug_rms_mul, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: debug_rms_mul (after weight mul) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: debug_rms_mul (after weight mul) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     }
 
     // Check backend used for computation
-    fprintf(stderr, "[DEBUG] forward_pass: compute backend=%s\n", ggml_backend_name(backend));
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: compute backend=%s\n", ggml_backend_name(backend));
 
     if (layer0_attn_norm && layer0_attn_norm->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_attn_norm, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_norm (after weight) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_norm (after weight) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     }
 
     // Check if the model weight tensor still has correct data after compute
@@ -1883,12 +1804,11 @@ bool forward_pass(
         if (layer0_weight && layer0_weight->buffer) {
             std::vector<float> weight_data(10);
             ggml_backend_tensor_get(layer0_weight, weight_data.data(), 0, 10 * sizeof(float));
-            fprintf(stderr, "[DEBUG] forward_pass: model layer0 attn_norm weight first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: model layer0 attn_norm weight first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                     weight_data[0], weight_data[1], weight_data[2], weight_data[3], weight_data[4],
                     weight_data[5], weight_data[6], weight_data[7], weight_data[8], weight_data[9]);
-            fprintf(stderr, "[DEBUG] forward_pass: layer0_weight tensor=%p, data=%p, buffer=%p\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_weight tensor=%p, data=%p, buffer=%p\n",
                     (void*)layer0_weight, layer0_weight->data, (void*)layer0_weight->buffer);
-            fflush(stderr);
         }
     }
 
@@ -1897,9 +1817,8 @@ bool forward_pass(
     if (layer0_q_after_bias && layer0_q_after_bias->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_q_after_bias, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_q_after_bias first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_q_after_bias first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fflush(stderr);
     }
 
     // Check V after bias
@@ -1907,13 +1826,11 @@ bool forward_pass(
     if (layer0_v_after_bias && layer0_v_after_bias->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_v_after_bias, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_after_bias shape=[%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_after_bias shape=[%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 (long long)layer0_v_after_bias->ne[0], (long long)layer0_v_after_bias->ne[1],
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_after_bias NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_after_bias NOT FOUND or no buffer\n");
     }
 
     // Check Q before RoPE
@@ -1921,9 +1838,8 @@ bool forward_pass(
     if (layer0_q_before_rope && layer0_q_before_rope->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_q_before_rope, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_q_before_rope first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_q_before_rope first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     }
 
     // Check Q after RoPE
@@ -1931,12 +1847,10 @@ bool forward_pass(
     if (layer0_q_after_rope && layer0_q_after_rope->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_q_after_rope, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_q_after_rope first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_q_after_rope first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_q_after_rope NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_q_after_rope NOT FOUND or no buffer\n");
     }
 
     // Check K after RoPE
@@ -1944,9 +1858,8 @@ bool forward_pass(
     if (layer0_k_after_rope && layer0_k_after_rope->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_k_after_rope, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_k_after_rope first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_k_after_rope first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     }
 
     // Check scores after scale
@@ -1954,9 +1867,8 @@ bool forward_pass(
     if (layer0_scores_scaled && layer0_scores_scaled->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_scores_scaled, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_scores_scaled first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_scores_scaled first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     }
 
     // Check scores before mask
@@ -1964,7 +1876,7 @@ bool forward_pass(
     if (layer0_scores_before_mask && layer0_scores_before_mask->buffer) {
         int64_t n_kv = layer0_scores_before_mask->ne[0];
         int64_t n_tokens = layer0_scores_before_mask->ne[1];
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_scores_before_mask shape=[%lld,%lld,%lld,%lld] (n_kv=%lld, n_tokens=%lld)\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_scores_before_mask shape=[%lld,%lld,%lld,%lld] (n_kv=%lld, n_tokens=%lld)\n",
                 (long long)layer0_scores_before_mask->ne[0], (long long)layer0_scores_before_mask->ne[1],
                 (long long)layer0_scores_before_mask->ne[2], (long long)layer0_scores_before_mask->ne[3],
                 (long long)n_kv, (long long)n_tokens);
@@ -1973,10 +1885,9 @@ bool forward_pass(
         int64_t last_token_offset = (n_tokens - 1) * n_kv;
         std::vector<float> last_row(std::min(n_kv, (int64_t)10));
         ggml_backend_tensor_get(layer0_scores_before_mask, last_row.data(), last_token_offset * sizeof(float), last_row.size() * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: scores_before_mask last_token first %zu: ", last_row.size());
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: scores_before_mask last_token first %zu: ", last_row.size());
         for (size_t i = 0; i < last_row.size(); i++) fprintf(stderr, "%.4f ", last_row[i]);
         fprintf(stderr, "\n");
-        fflush(stderr);
     }
 
     // Check scores after softmax
@@ -1984,13 +1895,13 @@ bool forward_pass(
     if (layer0_scores_softmax && layer0_scores_softmax->buffer) {
         int64_t n_kv = layer0_scores_softmax->ne[0];
         int64_t n_tokens = layer0_scores_softmax->ne[1];
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_scores_softmax shape=[%lld,%lld,%lld,%lld] (n_kv=%lld, n_tokens=%lld)\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_scores_softmax shape=[%lld,%lld,%lld,%lld] (n_kv=%lld, n_tokens=%lld)\n",
                 (long long)layer0_scores_softmax->ne[0], (long long)layer0_scores_softmax->ne[1],
                 (long long)layer0_scores_softmax->ne[2], (long long)layer0_scores_softmax->ne[3],
                 (long long)n_kv, (long long)n_tokens);
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_scores_softmax, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_scores_softmax first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_scores_softmax first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
         // Shape is now [n_kv, n_tokens, n_head] after fix
         // Check softmax sum for the first token, head 0
@@ -1998,55 +1909,48 @@ bool forward_pass(
         std::vector<float> softmax_col(n_kv);
         ggml_backend_tensor_get(layer0_scores_softmax, softmax_col.data(), 0, n_kv * sizeof(float));
         for (int i = 0; i < n_kv; i++) softmax_sum += softmax_col[i];
-        fprintf(stderr, "[DEBUG] forward_pass: softmax sum for token0, head0 = %.6f (expected: 1.0)\n", softmax_sum);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: softmax sum for token0, head0 = %.6f (expected: 1.0)\n", softmax_sum);
     }
 
     struct ggml_tensor* layer0_residual_scaled = ggml_graph_get_tensor(graph, "layer0_residual_scaled");
     if (layer0_residual_scaled && layer0_residual_scaled->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_residual_scaled, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_residual_scaled tensor=%p, data=%p, buffer=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_residual_scaled tensor=%p, data=%p, buffer=%p\n",
                 (void*)layer0_residual_scaled, layer0_residual_scaled->data, (void*)layer0_residual_scaled->buffer);
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_residual_scaled (scaled input) first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_residual_scaled (scaled input) first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_residual_scaled NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_residual_scaled NOT FOUND or no buffer\n");
     }
 
     struct ggml_tensor* layer0_mha_output = ggml_graph_get_tensor(graph, "layer0_mha_output");
     if (layer0_mha_output && layer0_mha_output->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_mha_output, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_mha_output first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_mha_output first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_mha_output NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_mha_output NOT FOUND or no buffer\n");
     }
 
     // Debug: V before GQA repeat [head_dim, n_head_kv, n_kv]
     struct ggml_tensor* layer0_v_before_gqa = ggml_graph_get_tensor(graph, "layer0_v_before_gqa");
     if (layer0_v_before_gqa) {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_before_gqa tensor=%p, buffer=%p, view_src=%p, data=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_before_gqa tensor=%p, buffer=%p, view_src=%p, data=%p\n",
                 (void*)layer0_v_before_gqa, (void*)layer0_v_before_gqa->buffer,
                 (void*)layer0_v_before_gqa->view_src, layer0_v_before_gqa->data);
         if (layer0_v_before_gqa->buffer) {
             std::vector<float> data(10);
             ggml_backend_tensor_get(layer0_v_before_gqa, data.data(), 0, 10 * sizeof(float));
-            fprintf(stderr, "[DEBUG] forward_pass: layer0_v_before_gqa shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_before_gqa shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                     (long long)layer0_v_before_gqa->ne[0], (long long)layer0_v_before_gqa->ne[1], (long long)layer0_v_before_gqa->ne[2],
                     data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
         } else {
-            fprintf(stderr, "[DEBUG] forward_pass: layer0_v_before_gqa has no buffer\n");
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_before_gqa has no buffer\n");
         }
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_before_gqa NOT FOUND\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_before_gqa NOT FOUND\n");
     }
 
     // Debug: V after GQA repeat [head_dim, n_head, n_kv]
@@ -2054,7 +1958,7 @@ bool forward_pass(
     if (layer0_v_after_gqa && layer0_v_after_gqa->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_v_after_gqa, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_after_gqa shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_after_gqa shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 (long long)layer0_v_after_gqa->ne[0], (long long)layer0_v_after_gqa->ne[1], (long long)layer0_v_after_gqa->ne[2],
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
 
@@ -2064,10 +1968,10 @@ bool forward_pass(
         std::vector<float> head1_data(10);
         ggml_backend_tensor_get(layer0_v_after_gqa, head0_data.data(), 0, 10 * sizeof(float));
         ggml_backend_tensor_get(layer0_v_after_gqa, head1_data.data(), 64 * sizeof(float), 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: GQA verify head0[0:10]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: GQA verify head0[0:10]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 head0_data[0], head0_data[1], head0_data[2], head0_data[3], head0_data[4],
                 head0_data[5], head0_data[6], head0_data[7], head0_data[8], head0_data[9]);
-        fprintf(stderr, "[DEBUG] forward_pass: GQA verify head1[0:10]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: GQA verify head1[0:10]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 head1_data[0], head1_data[1], head1_data[2], head1_data[3], head1_data[4],
                 head1_data[5], head1_data[6], head1_data[7], head1_data[8], head1_data[9]);
         bool gqa_match = true;
@@ -2077,12 +1981,12 @@ bool forward_pass(
                 break;
             }
         }
-        fprintf(stderr, "[DEBUG] forward_pass: GQA head0==head1? %s\n", gqa_match ? "YES" : "NO");
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: GQA head0==head1? %s\n", gqa_match ? "YES" : "NO");
 
         // Also check head 7 (first head of KV head 1, at position 7*64=448)
         std::vector<float> head7_data(10);
         ggml_backend_tensor_get(layer0_v_after_gqa, head7_data.data(), 448 * sizeof(float), 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: GQA verify head7[0:10]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: GQA verify head7[0:10]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 head7_data[0], head7_data[1], head7_data[2], head7_data[3], head7_data[4],
                 head7_data[5], head7_data[6], head7_data[7], head7_data[8], head7_data[9]);
         bool head0_ne_head7 = false;
@@ -2092,7 +1996,7 @@ bool forward_pass(
                 break;
             }
         }
-        fprintf(stderr, "[DEBUG] forward_pass: GQA head0!=head7? %s (expected: YES, different KV heads)\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: GQA head0!=head7? %s (expected: YES, different KV heads)\n",
                 head0_ne_head7 ? "YES" : "NO");
 
         // Check position 36 (dim 36, head 0) vs position 100 (dim 36, head 1)
@@ -2100,13 +2004,11 @@ bool forward_pass(
         float v_pos36, v_pos100;
         ggml_backend_tensor_get(layer0_v_after_gqa, &v_pos36, 36 * sizeof(float), sizeof(float));
         ggml_backend_tensor_get(layer0_v_after_gqa, &v_pos100, 100 * sizeof(float), sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: v_after_gqa[36] (dim36,h0,t0)=%.8f, v_after_gqa[100] (dim36,h1,t0)=%.8f, match=%s\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: v_after_gqa[36] (dim36,h0,t0)=%.8f, v_after_gqa[100] (dim36,h1,t0)=%.8f, match=%s\n",
                 v_pos36, v_pos100, (std::abs(v_pos36 - v_pos100) < 1e-5f) ? "YES" : "NO");
 
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_after_gqa NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_after_gqa NOT FOUND or no buffer\n");
     }
 
     // Debug: V after permute for matmul [n_kv, head_dim, n_head]
@@ -2114,13 +2016,11 @@ bool forward_pass(
     if (layer0_v_for_matmul && layer0_v_for_matmul->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_v_for_matmul, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_for_matmul shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_for_matmul shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 (long long)layer0_v_for_matmul->ne[0], (long long)layer0_v_for_matmul->ne[1], (long long)layer0_v_for_matmul->ne[2],
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_v_for_matmul NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_v_for_matmul NOT FOUND or no buffer\n");
     }
 
     // Debug: attn_out raw (before permute) [head_dim, n_tokens, n_head]
@@ -2128,13 +2028,13 @@ bool forward_pass(
     if (layer0_attn_out_raw && layer0_attn_out_raw->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_attn_out_raw, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_out_raw shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_out_raw shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 (long long)layer0_attn_out_raw->ne[0], (long long)layer0_attn_out_raw->ne[1], (long long)layer0_attn_out_raw->ne[2],
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
         // Check element at offset 100
         std::vector<float> data100(10);
         ggml_backend_tensor_get(layer0_attn_out_raw, data100.data(), 100 * sizeof(float), 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_out_raw elements [100:110]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_out_raw elements [100:110]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data100[0], data100[1], data100[2], data100[3], data100[4], data100[5], data100[6], data100[7], data100[8], data100[9]);
 
         // Shape [head_dim, n_tokens, n_head] in column-major:
@@ -2144,20 +2044,18 @@ bool forward_pass(
         int64_t head0_pos36 = 36;
         int64_t head1_pos36 = 36 + 1 * head_dim * n_tokens_raw;
         int64_t total_elements = ggml_nelements(layer0_attn_out_raw);
-        fprintf(stderr, "[DEBUG] forward_pass: attn_out_raw total_elements=%lld, head0_pos36=%lld, head1_pos36=%lld\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: attn_out_raw total_elements=%lld, head0_pos36=%lld, head1_pos36=%lld\n",
                 (long long)total_elements, (long long)head0_pos36, (long long)head1_pos36);
         // Since heads 0 and 1 both use same KV head 0 (after GQA), they should produce identical output
         if (head1_pos36 < total_elements) {
             float raw_h0, raw_h1;
             ggml_backend_tensor_get(layer0_attn_out_raw, &raw_h0, head0_pos36 * sizeof(float), sizeof(float));
             ggml_backend_tensor_get(layer0_attn_out_raw, &raw_h1, head1_pos36 * sizeof(float), sizeof(float));
-            fprintf(stderr, "[DEBUG] forward_pass: attn_out_raw head0[36]=%.8f, head1[36]=%.8f, match=%s\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: attn_out_raw head0[36]=%.8f, head1[36]=%.8f, match=%s\n",
                     raw_h0, raw_h1, (std::abs(raw_h0 - raw_h1) < 1e-5f) ? "YES" : "NO");
         }
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_out_raw NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_out_raw NOT FOUND or no buffer\n");
     }
 
     // Debug: attn_out after permute+cont [head_dim, n_head, n_tokens]
@@ -2165,13 +2063,13 @@ bool forward_pass(
     if (layer0_attn_after_permute && layer0_attn_after_permute->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_attn_after_permute, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_after_permute shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_after_permute shape=[%lld,%lld,%lld] first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 (long long)layer0_attn_after_permute->ne[0], (long long)layer0_attn_after_permute->ne[1], (long long)layer0_attn_after_permute->ne[2],
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
         // Check element at offset 100
         std::vector<float> data100(10);
         ggml_backend_tensor_get(layer0_attn_after_permute, data100.data(), 100 * sizeof(float), 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_after_permute elements [100:110]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_after_permute elements [100:110]: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data100[0], data100[1], data100[2], data100[3], data100[4], data100[5], data100[6], data100[7], data100[8], data100[9]);
 
         // For token 0, heads 0-6 should all have same values (from KV head 0)
@@ -2180,37 +2078,34 @@ bool forward_pass(
         float attn_pos36, attn_pos100;
         ggml_backend_tensor_get(layer0_attn_after_permute, &attn_pos36, 36 * sizeof(float), sizeof(float));
         ggml_backend_tensor_get(layer0_attn_after_permute, &attn_pos100, 100 * sizeof(float), sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: attn_after_permute[36] (d36,h0,t0)=%.8f, [100] (d36,h1,t0)=%.8f, match=%s\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: attn_after_permute[36] (d36,h0,t0)=%.8f, [100] (d36,h1,t0)=%.8f, match=%s\n",
                 attn_pos36, attn_pos100, (std::abs(attn_pos36 - attn_pos100) < 1e-5f) ? "YES" : "NO");
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_after_permute NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_after_permute NOT FOUND or no buffer\n");
     }
 
     struct ggml_tensor* layer0_before_oproj = ggml_graph_get_tensor(graph, "layer0_before_oproj");
     if (layer0_before_oproj && layer0_before_oproj->buffer) {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_before_oproj shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_before_oproj shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)layer0_before_oproj->ne[0], (long long)layer0_before_oproj->ne[1],
                 (long long)layer0_before_oproj->ne[2], (long long)layer0_before_oproj->ne[3]);
         std::vector<float> data(10);
         ggml_backend_tensor_get(layer0_before_oproj, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_before_oproj first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_before_oproj first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
-        fflush(stderr);
 
         // Debug: print wo tensor values to verify the weight data
         if (ctx->model->tensors.layers.size() > 0) {
             auto& layer0_wo = ctx->model->tensors.layers[0].wo;
             if (layer0_wo && layer0_wo->buffer) {
                 // Print wo shape
-                fprintf(stderr, "[DEBUG] forward_pass: layer0 wo shape=[%lld,%lld]\n",
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0 wo shape=[%lld,%lld]\n",
                         (long long)layer0_wo->ne[0], (long long)layer0_wo->ne[1]);
 
                 // Read first 10 values (these are wo[0:10, 0] in ggml column-major)
                 std::vector<float> wo_col0(10);
                 ggml_backend_tensor_get(layer0_wo, wo_col0.data(), 0, 10 * sizeof(float));
-                fprintf(stderr, "[DEBUG] forward_pass: wo column 0 [0:10] (memory order): %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: wo column 0 [0:10] (memory order): %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
                         wo_col0[0], wo_col0[1], wo_col0[2], wo_col0[3], wo_col0[4],
                         wo_col0[5], wo_col0[6], wo_col0[7], wo_col0[8], wo_col0[9]);
 
@@ -2221,12 +2116,12 @@ bool forward_pass(
                 for (int i = 0; i < 10; i++) {
                     ggml_backend_tensor_get(layer0_wo, &wo_row0[i], i * stride, sizeof(float));
                 }
-                fprintf(stderr, "[DEBUG] forward_pass: wo row 0 [0:10] (stride access): %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: wo row 0 [0:10] (stride access): %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
                         wo_row0[0], wo_row0[1], wo_row0[2], wo_row0[3], wo_row0[4],
                         wo_row0[5], wo_row0[6], wo_row0[7], wo_row0[8], wo_row0[9]);
 
                 // Expected PyTorch wo[0, 0:10]: 0.00689697, 0.01092529, 0.01043701, 0.01171875, -0.01257324...
-                fprintf(stderr, "[DEBUG] forward_pass: Expected PyTorch wo[0, 0:10]: 0.00689697 0.01092529 0.01043701 0.01171875 -0.01257324 -0.04052734 -0.00585938 -0.01733398 -0.03540039 -0.00296021\n");
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: Expected PyTorch wo[0, 0:10]: 0.00689697 0.01092529 0.01043701 0.01171875 -0.01257324 -0.04052734 -0.00585938 -0.01733398 -0.03540039 -0.00296021\n");
 
                 // Manual computation: expected output[0] = sum_k input[k] * pytorch_wo[0, k]
                 // pytorch_wo[0, k] = ggml_wo[k, 0] (due to row-major to column-major transpose)
@@ -2237,14 +2132,14 @@ bool forward_pass(
                 for (int k = 0; k < 10; k++) {
                     manual_out0_v1 += data[k] * wo_col0[k];
                 }
-                fprintf(stderr, "[DEBUG] forward_pass: Manual partial output[0] using wo column 0 (first 10 terms) = %.8f\n", manual_out0_v1);
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: Manual partial output[0] using wo column 0 (first 10 terms) = %.8f\n", manual_out0_v1);
 
                 // Also test: output[0] = sum_k input[k] * wo_row0[k] (if ggml uses different convention)
                 double manual_out0_v2 = 0.0;
                 for (int k = 0; k < 10; k++) {
                     manual_out0_v2 += data[k] * wo_row0[k];
                 }
-                fprintf(stderr, "[DEBUG] forward_pass: Manual partial output[0] using wo row 0 (first 10 terms) = %.8f\n", manual_out0_v2);
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: Manual partial output[0] using wo row 0 (first 10 terms) = %.8f\n", manual_out0_v2);
 
                 // Full computation for output[0] using all 896 elements
                 std::vector<float> input_full(896);
@@ -2254,140 +2149,132 @@ bool forward_pass(
                 ggml_backend_tensor_get(layer0_wo, wo_col0_full.data(), 0, 896 * sizeof(float));
 
                 // Verify INPUT values at specific positions (THE KEY CHECK!)
-                fprintf(stderr, "[DEBUG] forward_pass: C++ input[100:110]: %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: C++ input[100:110]: %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
                         input_full[100], input_full[101], input_full[102], input_full[103], input_full[104],
                         input_full[105], input_full[106], input_full[107], input_full[108], input_full[109]);
-                fprintf(stderr, "[DEBUG] forward_pass: Python input[100:110]: -0.01185845 0.00935552 -0.01751706 -0.01777427 -0.01492144 0.00396902 0.00011762 0.00082328 -0.00423377 -0.01285193\n");
-                fprintf(stderr, "[DEBUG] forward_pass: C++ input[500:510]: %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: Python input[100:110]: -0.01185845 0.00935552 -0.01751706 -0.01777427 -0.01492144 0.00396902 0.00011762 0.00082328 -0.00423377 -0.01285193\n");
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: C++ input[500:510]: %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
                         input_full[500], input_full[501], input_full[502], input_full[503], input_full[504],
                         input_full[505], input_full[506], input_full[507], input_full[508], input_full[509]);
-                fprintf(stderr, "[DEBUG] forward_pass: Python input[500:510]: -0.00717101 -0.01702837 0.00539054 -0.03737309 -0.00997916 -0.01208786 -0.05263824 0.02893736 -0.04277842 0.00754921\n");
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: Python input[500:510]: -0.00717101 -0.01702837 0.00539054 -0.03737309 -0.00997916 -0.01208786 -0.05263824 0.02893736 -0.04277842 0.00754921\n");
 
                 // Compute sum of abs values for input
                 double input_sum = 0.0;
                 for (int k = 0; k < 896; k++) {
                     input_sum += std::abs(input_full[k]);
                 }
-                fprintf(stderr, "[DEBUG] forward_pass: C++ sum(abs(input)) = %.8f (Python expected: 14.29706669)\n", input_sum);
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: C++ sum(abs(input)) = %.8f (Python expected: 14.29706669)\n", input_sum);
 
                 double manual_out0_full = 0.0;
                 for (int k = 0; k < 896; k++) {
                     manual_out0_full += input_full[k] * wo_col0_full[k];
                 }
-                fprintf(stderr, "[DEBUG] forward_pass: Manual FULL output[0] = %.8f\n", manual_out0_full);
-                fprintf(stderr, "[DEBUG] forward_pass: Expected Python output[0] = -0.01738128\n");
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: Manual FULL output[0] = %.8f\n", manual_out0_full);
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: Expected Python output[0] = -0.01738128\n");
 
                 // Also compute sum of abs values for wo comparison
                 double wo_col0_sum = 0.0;
                 for (int k = 0; k < 896; k++) {
                     wo_col0_sum += std::abs(wo_col0_full[k]);
                 }
-                fprintf(stderr, "[DEBUG] forward_pass: sum(abs(wo_col0)) = %.8f (expected 15.80590725)\n", wo_col0_sum);
-                fflush(stderr);
+                STCPP_DEBUG_LOG("[DEBUG] forward_pass: sum(abs(wo_col0)) = %.8f (expected 15.80590725)\n", wo_col0_sum);
             }
         }
     }
 
     struct ggml_tensor* layer0_attn_raw = ggml_graph_get_tensor(graph, "layer0_attn_raw");
     if (layer0_attn_raw && layer0_attn_raw->buffer) {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_raw shape=[%lld,%lld,%lld,%lld]\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_raw shape=[%lld,%lld,%lld,%lld]\n",
                 (long long)layer0_attn_raw->ne[0], (long long)layer0_attn_raw->ne[1],
                 (long long)layer0_attn_raw->ne[2], (long long)layer0_attn_raw->ne[3]);
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_attn_raw, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_raw first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_raw first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fflush(stderr);
     }
 
     struct ggml_tensor* layer0_attn_out = ggml_graph_get_tensor(graph, "layer0_attn_out");
     if (layer0_attn_out && layer0_attn_out->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_attn_out, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_attn_out first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_attn_out first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fflush(stderr);
     }
 
     struct ggml_tensor* layer0_residual2 = ggml_graph_get_tensor(graph, "layer0_residual2");
     if (layer0_residual2 && layer0_residual2->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_residual2, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_residual2 tensor=%p, data=%p, buffer=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_residual2 tensor=%p, data=%p, buffer=%p\n",
                 (void*)layer0_residual2, layer0_residual2->data, (void*)layer0_residual2->buffer);
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_residual2 (before ffn) first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_residual2 (before ffn) first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fflush(stderr);
     } else {
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_residual2 NOT FOUND or no buffer\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_residual2 NOT FOUND or no buffer\n");
     }
 
     struct ggml_tensor* layer0_ffn_norm = ggml_graph_get_tensor(graph, "layer0_ffn_norm");
     if (layer0_ffn_norm && layer0_ffn_norm->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_ffn_norm, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_ffn_norm first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_ffn_norm first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_ffn_norm tensor=%p, data=%p, buffer=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_ffn_norm tensor=%p, data=%p, buffer=%p\n",
                 (void*)layer0_ffn_norm, layer0_ffn_norm->data, (void*)layer0_ffn_norm->buffer);
-        fflush(stderr);
     }
 
     struct ggml_tensor* layer0_ffn_out = ggml_graph_get_tensor(graph, "layer0_ffn_out");
     if (layer0_ffn_out && layer0_ffn_out->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_ffn_out, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_ffn_out first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_ffn_out first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_ffn_out tensor=%p, data=%p, buffer=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_ffn_out tensor=%p, data=%p, buffer=%p\n",
                 (void*)layer0_ffn_out, layer0_ffn_out->data, (void*)layer0_ffn_out->buffer);
         // Compare pointers
-        fprintf(stderr, "[DEBUG] forward_pass: ffn_norm == ffn_out? %s, same_buffer? %s, same_data? %s\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: ffn_norm == ffn_out? %s, same_buffer? %s, same_data? %s\n",
                 layer0_ffn_norm == layer0_ffn_out ? "YES" : "NO",
                 layer0_ffn_norm->buffer == layer0_ffn_out->buffer ? "YES" : "NO",
                 layer0_ffn_norm->data == layer0_ffn_out->data ? "YES" : "NO");
-        fflush(stderr);
     }
 
     struct ggml_tensor* layer0_output = ggml_graph_get_tensor(graph, "layer0_output");
     if (layer0_output && layer0_output->buffer) {
         std::vector<float> data(5);
         ggml_backend_tensor_get(layer0_output, data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_output first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_output first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4]);
-        fprintf(stderr, "[DEBUG] forward_pass: layer0_output buffer=%p, data=%p\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_output buffer=%p, data=%p\n",
                 (void*)layer0_output->buffer, layer0_output->data);
         // Check ggml_add inputs
         if (layer0_output->src[0] && layer0_output->src[0]->buffer) {
             std::vector<float> src0_data(5);
             ggml_backend_tensor_get(layer0_output->src[0], src0_data.data(), 0, 5 * sizeof(float));
-            fprintf(stderr, "[DEBUG] forward_pass: layer0_output.src[0] (ffn_out) first 5: %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_output.src[0] (ffn_out) first 5: %.6f %.6f %.6f %.6f %.6f\n",
                     src0_data[0], src0_data[1], src0_data[2], src0_data[3], src0_data[4]);
-            fprintf(stderr, "[DEBUG] forward_pass: src[0] buffer=%p, data=%p\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: src[0] buffer=%p, data=%p\n",
                     (void*)layer0_output->src[0]->buffer, layer0_output->src[0]->data);
         }
         if (layer0_output->src[1] && layer0_output->src[1]->buffer) {
             std::vector<float> src1_data(5);
             ggml_backend_tensor_get(layer0_output->src[1], src1_data.data(), 0, 5 * sizeof(float));
-            fprintf(stderr, "[DEBUG] forward_pass: layer0_output.src[1] (residual) first 5: %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_output.src[1] (residual) first 5: %.6f %.6f %.6f %.6f %.6f\n",
                     src1_data[0], src1_data[1], src1_data[2], src1_data[3], src1_data[4]);
-            fprintf(stderr, "[DEBUG] forward_pass: src[1] buffer=%p, data=%p\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: src[1] buffer=%p, data=%p\n",
                     (void*)layer0_output->src[1]->buffer, layer0_output->src[1]->data);
             // Check for data aliasing
-            fprintf(stderr, "[DEBUG] forward_pass: output.data==src[0].data? %s, output.data==src[1].data? %s\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: output.data==src[0].data? %s, output.data==src[1].data? %s\n",
                     layer0_output->data == layer0_output->src[0]->data ? "YES" : "NO",
                     layer0_output->data == layer0_output->src[1]->data ? "YES" : "NO");
             // Manually compute expected value
             std::vector<float> src0_data(5);
             ggml_backend_tensor_get(layer0_output->src[0], src0_data.data(), 0, 5 * sizeof(float));
-            fprintf(stderr, "[DEBUG] forward_pass: EXPECTED layer0_output = src[0]+src[1]: %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: EXPECTED layer0_output = src[0]+src[1]: %.6f %.6f %.6f %.6f %.6f\n",
                     src0_data[0]+src1_data[0], src0_data[1]+src1_data[1], src0_data[2]+src1_data[2],
                     src0_data[3]+src1_data[3], src0_data[4]+src1_data[4]);
         } else {
-            fprintf(stderr, "[DEBUG] forward_pass: layer0_output.src[1] has NO buffer!\n");
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: layer0_output.src[1] has NO buffer!\n");
         }
-        fflush(stderr);
     }
 
     // Debug: Check last layer output (before final_norm)
@@ -2395,7 +2282,7 @@ bool forward_pass(
     if (last_layer_output && last_layer_output->buffer) {
         std::vector<float> data(10);
         ggml_backend_tensor_get(last_layer_output, data.data(), 0, 10 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: last_layer_output first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: last_layer_output first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]);
         // Calculate max absolute value
         float max_abs = 0.0f;
@@ -2405,8 +2292,7 @@ bool forward_pass(
         for (size_t i = 0; i < n_embd; i++) {
             if (std::abs(all_data[i]) > max_abs) max_abs = std::abs(all_data[i]);
         }
-        fprintf(stderr, "[DEBUG] forward_pass: last_layer_output max_abs=%.6f (expected < 10)\n", max_abs);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: last_layer_output max_abs=%.6f (expected < 10)\n", max_abs);
     }
 
     // Debug: Check final_norm output (hidden state before lm_head)
@@ -2417,21 +2303,20 @@ bool forward_pass(
         size_t last_token_offset = (n_tokens - 1) * hidden_dim * sizeof(float);
         std::vector<float> hidden_data(5);
         ggml_backend_tensor_get(final_norm_last, hidden_data.data(), last_token_offset, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: final_norm (last token) first 5: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: final_norm (last token) first 5: %.6f %.6f %.6f %.6f %.6f\n",
                 hidden_data[0], hidden_data[1], hidden_data[2], hidden_data[3], hidden_data[4]);
         // Read hidden[10:15] to compare with Python
         std::vector<float> hidden_data2(5);
         ggml_backend_tensor_get(final_norm_last, hidden_data2.data(), last_token_offset + 10 * sizeof(float), 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] forward_pass: final_norm (last token) [10:15]: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: final_norm (last token) [10:15]: %.6f %.6f %.6f %.6f %.6f\n",
                 hidden_data2[0], hidden_data2[1], hidden_data2[2], hidden_data2[3], hidden_data2[4]);
-        fflush(stderr);
 
         // Debug: Check final_norm input (last layer output)
         if (final_norm_last->src[0] && final_norm_last->src[0]->buffer) {
             struct ggml_tensor* last_layer = final_norm_last->src[0];
             std::vector<float> input_data(10);
             ggml_backend_tensor_get(last_layer, input_data.data(), last_token_offset, 10 * sizeof(float));
-            fprintf(stderr, "[DEBUG] forward_pass: last_layer (final_norm input) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: last_layer (final_norm input) first 10: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
                     input_data[0], input_data[1], input_data[2], input_data[3], input_data[4],
                     input_data[5], input_data[6], input_data[7], input_data[8], input_data[9]);
             // Calculate max absolute value
@@ -2441,8 +2326,7 @@ bool forward_pass(
             for (size_t i = 0; i < hidden_dim; i++) {
                 if (std::abs(all_data[i]) > max_abs) max_abs = std::abs(all_data[i]);
             }
-            fprintf(stderr, "[DEBUG] forward_pass: last_layer max_abs=%.6f (expected < 10)\n", max_abs);
-            fflush(stderr);
+            STCPP_DEBUG_LOG("[DEBUG] forward_pass: last_layer max_abs=%.6f (expected < 10)\n", max_abs);
         }
     }
 #endif
@@ -2464,13 +2348,12 @@ bool forward_pass(
         return false;
     }
 
-    fprintf(stderr, "[DEBUG] forward_pass: copying logits\n");
-    fprintf(stderr, "[DEBUG] forward_pass: logits_tensor ne=[%lld, %lld, %lld, %lld]\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: copying logits\n");
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: logits_tensor ne=[%lld, %lld, %lld, %lld]\n",
             (long long)logits_tensor->ne[0], (long long)logits_tensor->ne[1],
             (long long)logits_tensor->ne[2], (long long)logits_tensor->ne[3]);
-    fprintf(stderr, "[DEBUG] forward_pass: logits_tensor data=%p, buffer=%p\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: logits_tensor data=%p, buffer=%p\n",
             logits_tensor->data, (void*)logits_tensor->buffer);
-    fflush(stderr);
 
     // Copy logits for the last token
     const ModelHParams& hparams = ctx->model->hparams;
@@ -2482,39 +2365,33 @@ bool forward_pass(
 
     // For backend compute, we need to use ggml_backend_tensor_get to read the result
     // Check if tensor has a buffer (backend tensor)
-    fprintf(stderr, "[DEBUG] forward_pass: offset=%zu, logits_size=%zu, tensor_size=%zu\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: offset=%zu, logits_size=%zu, tensor_size=%zu\n",
             offset, logits_size, ggml_nbytes(logits_tensor));
-    fflush(stderr);
 
     bool logits_copied = false;
-    fprintf(stderr, "[DEBUG] forward_pass: dest logits ptr=%p\n", (void*)logits);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: dest logits ptr=%p\n", (void*)logits);
     if (logits_tensor->buffer) {
-        fprintf(stderr, "[DEBUG] forward_pass: have buffer, path A\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: have buffer, path A\n");
         // Verify bounds
         bool bounds_ok = (offset + logits_size <= ggml_nbytes(logits_tensor));
-        fprintf(stderr, "[DEBUG] forward_pass: bounds_ok=%d\n", bounds_ok ? 1 : 0);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: bounds_ok=%d\n", bounds_ok ? 1 : 0);
         if (!bounds_ok) {
             ggml_gallocr_free(allocr);
             error = "Logits offset+size exceeds tensor size";
             return false;
         }
         // Synchronize backend before reading
-        fprintf(stderr, "[DEBUG] forward_pass: calling ggml_backend_synchronize\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: calling ggml_backend_synchronize\n");
         ggml_backend_synchronize(backend);
-        fprintf(stderr, "[DEBUG] forward_pass: sync done, calling tensor_get\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: sync done, calling tensor_get\n");
         ggml_backend_tensor_get(logits_tensor, logits, offset, logits_size);
         logits_copied = true;
-        fprintf(stderr, "[DEBUG] forward_pass: ggml_backend_tensor_get completed\n");
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: ggml_backend_tensor_get completed\n");
         // CRITICAL DEBUG: Check logits immediately after copy, BEFORE freeing allocr
-        fprintf(stderr, "[DEBUG] forward_pass: IMMEDIATELY after tensor_get, logits ptr=%p\n", (void*)logits);
-        fprintf(stderr, "[DEBUG] forward_pass: IMMEDIATELY after tensor_get, logits[0:5]=%.4f %.4f %.4f %.4f %.4f\n",
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: IMMEDIATELY after tensor_get, logits ptr=%p\n", (void*)logits);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: IMMEDIATELY after tensor_get, logits[0:5]=%.4f %.4f %.4f %.4f %.4f\n",
                 logits[0], logits[1], logits[2], logits[3], logits[4]);
-        fprintf(stderr, "[DEBUG] forward_pass: IMMEDIATELY after tensor_get, logits[198]=%.4f\n", logits[198]);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: IMMEDIATELY after tensor_get, logits[198]=%.4f\n", logits[198]);
         // Find argmax immediately
         float max_val = logits[0];
         int max_idx = 0;
@@ -2524,11 +2401,9 @@ bool forward_pass(
                 max_idx = i;
             }
         }
-        fprintf(stderr, "[DEBUG] forward_pass: IMMEDIATELY after tensor_get, argmax=%d, max_val=%.4f\n", max_idx, max_val);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: IMMEDIATELY after tensor_get, argmax=%d, max_val=%.4f\n", max_idx, max_val);
     } else if (logits_tensor->data) {
-        fprintf(stderr, "[DEBUG] forward_pass: using direct memcpy\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] forward_pass: using direct memcpy\n");
         const float* src = (const float*)((char*)logits_tensor->data + offset);
         memcpy(logits, src, logits_size);
         logits_copied = true;
@@ -2538,11 +2413,10 @@ bool forward_pass(
     ggml_gallocr_free(allocr);
 
     // CRITICAL DEBUG: Check if freeing allocr corrupted logits
-    fprintf(stderr, "[DEBUG] forward_pass: AFTER ggml_gallocr_free, logits ptr=%p\n", (void*)logits);
-    fprintf(stderr, "[DEBUG] forward_pass: AFTER ggml_gallocr_free, logits[0:5]=%.4f %.4f %.4f %.4f %.4f\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: AFTER ggml_gallocr_free, logits ptr=%p\n", (void*)logits);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: AFTER ggml_gallocr_free, logits[0:5]=%.4f %.4f %.4f %.4f %.4f\n",
             logits[0], logits[1], logits[2], logits[3], logits[4]);
-    fprintf(stderr, "[DEBUG] forward_pass: AFTER ggml_gallocr_free, logits[198]=%.4f\n", logits[198]);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: AFTER ggml_gallocr_free, logits[198]=%.4f\n", logits[198]);
 
     if (!logits_copied) {
         error = "Logits tensor has no data";
@@ -2550,11 +2424,11 @@ bool forward_pass(
     }
 
     // Debug: check first few logit values
-    fprintf(stderr, "[DEBUG] forward_pass: first 5 logits: %.4f %.4f %.4f %.4f %.4f\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: first 5 logits: %.4f %.4f %.4f %.4f %.4f\n",
             logits[0], logits[1], logits[2], logits[3], logits[4]);
     // Debug: check specific token logits (compare to Python)
     // Python: logits[12]=5.78, logits[9707]=14.80, logits[39814]=7.82
-    fprintf(stderr, "[DEBUG] forward_pass: logits[12 '-']=%.4f, logits[9707 'Hello']=%.4f, logits[39814 'Sure']=%.4f\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: logits[12 '-']=%.4f, logits[9707 'Hello']=%.4f, logits[39814 'Sure']=%.4f\n",
             logits[12], logits[9707], logits[39814]);
     // Debug: find top 5 tokens
     std::vector<std::pair<float, int>> top_tokens;
@@ -2563,19 +2437,17 @@ bool forward_pass(
     }
     std::partial_sort(top_tokens.begin(), top_tokens.begin() + 5, top_tokens.end(),
                       [](const auto& a, const auto& b) { return a.first > b.first; });
-    fprintf(stderr, "[DEBUG] forward_pass: TOP 5 tokens: [%d]=%.4f, [%d]=%.4f, [%d]=%.4f, [%d]=%.4f, [%d]=%.4f\n",
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: TOP 5 tokens: [%d]=%.4f, [%d]=%.4f, [%d]=%.4f, [%d]=%.4f, [%d]=%.4f\n",
             top_tokens[0].second, top_tokens[0].first,
             top_tokens[1].second, top_tokens[1].first,
             top_tokens[2].second, top_tokens[2].first,
             top_tokens[3].second, top_tokens[3].first,
             top_tokens[4].second, top_tokens[4].first);
-    fflush(stderr);
 
     // Update KV cache position
     ctx->kv_used = n_past + n_tokens;
 
-    fprintf(stderr, "[DEBUG] forward_pass: done\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] forward_pass: done\n");
 
     return true;
 }

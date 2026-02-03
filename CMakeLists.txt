@@ -31,8 +31,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     else()
         add_compile_options(-O3)
         if(PORTABLE_BUILD)
-            # Use baseline x86-64 for maximum compatibility
-            add_compile_options(-march=x86-64 -mtune=generic)
+            if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|i686|AMD64|amd64)$")
+                # Use baseline x86-64 for maximum compatibility
+                add_compile_options(-march=x86-64 -mtune=generic)
+            elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+                # Portable baseline for Apple Silicon / ARM64
+                add_compile_options(-march=armv8-a)
+            endif()
         else()
             # Optimize for the build machine's CPU
             add_compile_options(-march=native)

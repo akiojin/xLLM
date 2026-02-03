@@ -24,7 +24,7 @@ std::string current_date() {
     return std::string(buf);
 }
 
-std::string build_system_message() {
+    std::string build_system_message() {
     std::ostringstream oss;
     oss << "<|start|>system<|message|>"
         << "You are ChatGPT, a large language model trained by OpenAI.\n"
@@ -38,6 +38,9 @@ std::string build_system_message() {
 
 std::string strip_control_tokens(std::string text) {
     const std::vector<std::string> tokens = {
+        "<|start|>system", "<|start|>developer", "<|start|>assistant",
+        "<|start|>user", "<|start|>tool", "<|start|>function",
+        "<|channel|>final", "<|channel|>analysis", "<|channel|>commentary",
         "<|start|>", "<|end|>", "<|message|>", "<|channel|>",
         "<|return|>", "<|constrain|>",
         "<|im_start|>", "<|im_end|>", "<s>", "</s>", "<|endoftext|>", "<|eot_id|>"

@@ -11,6 +11,7 @@
  */
 
 #include "safetensors_internal.h"
+#include "debug_log.h"
 #include <functional>
 #include <sstream>
 #include <regex>
@@ -44,8 +45,7 @@ static bool tokenize_template(
     std::vector<TemplateNode>& nodes,
     std::string& error
 ) {
-    fprintf(stderr, "[DEBUG] tokenize_template: entered, len=%zu\n", tmpl.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] tokenize_template: entered, len=%zu\n", tmpl.size());
 
     size_t pos = 0;
     size_t len = tmpl.size();
@@ -54,8 +54,7 @@ static bool tokenize_template(
     while (pos < len) {
         iteration++;
         if (iteration % 1000 == 0) {
-            fprintf(stderr, "[DEBUG] tokenize_template: iteration=%d, pos=%zu/%zu\n", iteration, pos, len);
-            fflush(stderr);
+            STCPP_DEBUG_LOG("[DEBUG] tokenize_template: iteration=%d, pos=%zu/%zu\n", iteration, pos, len);
         }
         // Find next template tag
         size_t tag_start = tmpl.find("{", pos);
@@ -122,18 +121,15 @@ static bool tokenize_template(
                 // {% for x in y %}
                 node.type = NodeType::FOR_LOOP;
                 // Parse: "for message in messages"
-                fprintf(stderr, "[DEBUG] tokenize_template: parsing for loop: '%s'\n", ctrl.c_str());
-                fflush(stderr);
+                STCPP_DEBUG_LOG("[DEBUG] tokenize_template: parsing for loop: '%s'\n", ctrl.c_str());
                 std::regex for_regex(R"(for\s+(\w+)\s+in\s+(\w+))");
                 std::smatch match;
-                fprintf(stderr, "[DEBUG] tokenize_template: regex_search starting\n");
-                fflush(stderr);
+                STCPP_DEBUG_LOG("[DEBUG] tokenize_template: regex_search starting\n");
                 if (std::regex_search(ctrl, match, for_regex)) {
                     node.var_name = match[1].str();
                     node.iterable = match[2].str();
-                    fprintf(stderr, "[DEBUG] tokenize_template: for loop: var=%s iterable=%s\n",
+                    STCPP_DEBUG_LOG("[DEBUG] tokenize_template: for loop: var=%s iterable=%s\n",
                             node.var_name.c_str(), node.iterable.c_str());
-                    fflush(stderr);
                 }
             } else if (ctrl == "endfor") {
                 node.type = NodeType::END_FOR;
@@ -203,30 +199,25 @@ bool parse_chat_template(
     ChatTemplate& tmpl,
     std::string& error
 ) {
-    fprintf(stderr, "[DEBUG] parse_chat_template: entered, template_len=%zu\n", template_str.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] parse_chat_template: entered, template_len=%zu\n", template_str.size());
 
     tmpl.raw_template = template_str;
     tmpl.valid = false;
 
     // Check cache
     if (g_cached_template == template_str && !g_cached_nodes.empty()) {
-        fprintf(stderr, "[DEBUG] parse_chat_template: using cached nodes (%zu)\n", g_cached_nodes.size());
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] parse_chat_template: using cached nodes (%zu)\n", g_cached_nodes.size());
         tmpl.valid = true;
         return true;
     }
 
     std::vector<TemplateNode> nodes;
-    fprintf(stderr, "[DEBUG] parse_chat_template: calling tokenize_template\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] parse_chat_template: calling tokenize_template\n");
     if (!tokenize_template(template_str, nodes, error)) {
-        fprintf(stderr, "[DEBUG] parse_chat_template: tokenize_template failed: %s\n", error.c_str());
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] parse_chat_template: tokenize_template failed: %s\n", error.c_str());
         return false;
     }
-    fprintf(stderr, "[DEBUG] parse_chat_template: tokenize_template succeeded, nodes=%zu\n", nodes.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] parse_chat_template: tokenize_template succeeded, nodes=%zu\n", nodes.size());
 
     // Basic validation: check for matching blocks
     int for_depth = 0;
@@ -280,8 +271,7 @@ bool apply_chat_template(
     // ChatML format detection: if template contains <|im_start|>, use ChatML
     // This handles complex Qwen/Llama templates that our parser can't process
     if (tmpl.raw_template.find("<|im_start|>") != std::string::npos) {
-        fprintf(stderr, "[DEBUG] apply_chat_template: ChatML format detected, using fallback\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: ChatML format detected, using fallback\n");
         std::stringstream ss;
 
         // Check if first message is system, otherwise use default
@@ -305,8 +295,7 @@ bool apply_chat_template(
         }
 
         result = ss.str();
-        fprintf(stderr, "[DEBUG] apply_chat_template: ChatML result_len=%zu\n", result.size());
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: ChatML result_len=%zu\n", result.size());
         return true;
     }
 
@@ -314,12 +303,10 @@ bool apply_chat_template(
     // Use cached nodes if available
     std::vector<TemplateNode> nodes;
     if (g_cached_template == tmpl.raw_template && !g_cached_nodes.empty()) {
-        fprintf(stderr, "[DEBUG] apply_chat_template: using cached nodes (%zu)\n", g_cached_nodes.size());
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: using cached nodes (%zu)\n", g_cached_nodes.size());
         nodes = g_cached_nodes;
     } else {
-        fprintf(stderr, "[DEBUG] apply_chat_template: re-tokenizing template\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: re-tokenizing template\n");
         if (!tokenize_template(tmpl.raw_template, nodes, error)) {
             return false;
         }
@@ -336,13 +323,11 @@ bool apply_chat_template(
         while (idx < nodes.size()) {
             debug_call_count++;
             if (debug_call_count % 100 == 0) {
-                fprintf(stderr, "[DEBUG] process: call=%d, idx=%zu/%zu, type=%d\n",
+                STCPP_DEBUG_LOG("[DEBUG] process: call=%d, idx=%zu/%zu, type=%d\n",
                         debug_call_count, idx, nodes.size(), static_cast<int>(nodes[idx].type));
-                fflush(stderr);
             }
             if (debug_call_count > 10000) {
-                fprintf(stderr, "[DEBUG] process: ABORT - too many iterations (%d)\n", debug_call_count);
-                fflush(stderr);
+                STCPP_DEBUG_LOG("[DEBUG] process: ABORT - too many iterations (%d)\n", debug_call_count);
                 return false;
             }
 
@@ -469,30 +454,26 @@ bool apply_chat_template(
         return true;
     };
 
-    fprintf(stderr, "[DEBUG] apply_chat_template: starting process, nodes=%zu\n", nodes.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: starting process, nodes=%zu\n", nodes.size());
 
     std::stringstream ss;
     size_t idx = 0;
     if (!process(nodes, idx, ss, nullptr, 0)) {
-        fprintf(stderr, "[DEBUG] apply_chat_template: process returned false\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: process returned false\n");
         return false;
     }
 
-    fprintf(stderr, "[DEBUG] apply_chat_template: process done, idx=%zu\n", idx);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: process done, idx=%zu\n", idx);
 
     result = ss.str();
 
-    fprintf(stderr, "[DEBUG] apply_chat_template: returning, result_len=%zu\n", result.size());
+    STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: returning, result_len=%zu\n", result.size());
     // Print first 100 bytes as hex
-    fprintf(stderr, "[DEBUG] apply_chat_template: first 50 bytes hex: ");
+    STCPP_DEBUG_LOG("[DEBUG] apply_chat_template: first 50 bytes hex: ");
     for (size_t i = 0; i < std::min((size_t)50, result.size()); i++) {
         fprintf(stderr, "%02x ", (unsigned char)result[i]);
     }
     fprintf(stderr, "\n");
-    fflush(stderr);
 
     return true;
 }

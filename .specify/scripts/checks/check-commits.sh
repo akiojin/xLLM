@@ -60,6 +60,12 @@ echo ""
 # commitlintの存在確認
 run_commitlint() {
     if command -v pnpm >/dev/null 2>&1; then
+        if [ -d "node_modules/.pnpm" ]; then
+            pnpm exec commitlint --verbose
+            return
+        fi
+    fi
+    if command -v pnpm >/dev/null 2>&1; then
         pnpm dlx --package @commitlint/cli@19.4.1 \
             --package @commitlint/config-conventional@19.4.1 \
             commitlint --verbose
