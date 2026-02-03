@@ -4,6 +4,7 @@
  */
 
 #include "safetensors_internal.h"
+#include "debug_log.h"
 #include <fstream>
 #include <filesystem>
 #include <sstream>
@@ -930,7 +931,7 @@ bool tokenize(
 
     STCPP_DEBUG_LOG("[DEBUG] tokenize: final_tokens=%zu\n", tokens.size());
     if (tokens.size() > 0 && stcpp_debug_enabled()) {
-        fprintf(stderr, "[DEBUG] tokenize: first 5 tokens: ");
+        STCPP_DEBUG_LOG("[DEBUG] tokenize: first 5 tokens: ");
         for (size_t i = 0; i < std::min(tokens.size(), static_cast<size_t>(5)); i++) {
             fprintf(stderr, "%d ", tokens[i]);
         }
@@ -1007,7 +1008,7 @@ bool detokenize(
     STCPP_DEBUG_LOG("[DEBUG] detokenize: %zu tokens, vocab_size=%zu\n",
                     tokens.size(), tokenizer.vocab.size());
     if (stcpp_debug_enabled()) {
-        fprintf(stderr, "[DEBUG] detokenize: first 10 token IDs: ");
+        STCPP_DEBUG_LOG("[DEBUG] detokenize: first 10 token IDs: ");
         for (size_t i = 0; i < std::min(tokens.size(), static_cast<size_t>(10)); i++) {
             fprintf(stderr, "%d ", tokens[i]);
         }

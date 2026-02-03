@@ -4,6 +4,7 @@
  */
 
 #include "ggml_model.h"
+#include "debug_log.h"
 #include <ggml-cpu.h>
 #include "../ggml/src/ggml-quants.h"
 #ifdef STCPP_USE_METAL
@@ -264,9 +265,9 @@ static bool stcpp_convert_mxfp4_to_f16(
             }
             float d0 = 0.0f;
             memcpy(&d0, &bits, sizeof(float));
-            fprintf(stderr, "[DEBUG] mxfp4 row0 e=%u d=%g qs0=%02x qs1=%02x\n",
+            STCPP_DEBUG_LOG("[DEBUG] mxfp4 row0 e=%u d=%g qs0=%02x qs1=%02x\n",
                     src[0].e, d0, src[0].qs[0], src[0].qs[1]);
-            fprintf(stderr, "[DEBUG] mxfp4 row0 first5: %.6f %.6f %.6f %.6f %.6f\n",
+            STCPP_DEBUG_LOG("[DEBUG] mxfp4 row0 first5: %.6f %.6f %.6f %.6f %.6f\n",
                     row_f32[0], row_f32[1], row_f32[2], row_f32[3], row_f32[4]);
             fflush(stderr);
         }
@@ -508,7 +509,7 @@ bool pack_mxfp4_blocks_to_ggml(
 
                 if (!stcpp_mxfp4_block_logged && e == 0 && r == 0 && b == 0) {
                     stcpp_mxfp4_block_logged = true;
-                    fprintf(stderr, "[DEBUG] mxfp4 pack row_offset=%lld stride=%lld scale=%u block0=",
+                    STCPP_DEBUG_LOG("[DEBUG] mxfp4 pack row_offset=%lld stride=%lld scale=%u block0=",
                             (long long)row_offset, (long long)row_stride, scale);
                     for (int i = 0; i < 16; ++i) {
                         fprintf(stderr, "%02x", transformed[i]);
@@ -1344,46 +1345,46 @@ GgmlModel* load_ggml_model(
 ) {
     namespace fs = std::filesystem;
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: starting for %s\n", model_dir.c_str());
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: starting for %s\n", model_dir.c_str());
     fflush(stderr);
 
     // Create model
     auto model = std::make_unique<GgmlModel>();
     model->model_path = model_dir;
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: loading hparams\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: loading hparams\n");
     fflush(stderr);
 
     // Load hyperparameters
     if (!load_hparams(model_dir, model->hparams, error)) {
-        fprintf(stderr, "[DEBUG] load_ggml_model: hparams failed: %s\n", error.c_str());
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: hparams failed: %s\n", error.c_str());
         fflush(stderr);
         return nullptr;
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: hparams loaded, weight_type=%d, n_layer=%d, n_embd=%d\n",
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: hparams loaded, weight_type=%d, n_layer=%d, n_embd=%d\n",
             model->hparams.weight_type, model->hparams.n_layer, model->hparams.n_embd);
     fflush(stderr);
 
     // CPU backend doesn't support bf16 operations, convert to f32
     if (backend_type == STCPP_BACKEND_CPU && model->hparams.weight_type == GGML_TYPE_BF16) {
-        fprintf(stderr, "[DEBUG] load_ggml_model: CPU backend - converting bf16 to f32\n");
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: CPU backend - converting bf16 to f32\n");
         fflush(stderr);
         model->hparams.weight_type = GGML_TYPE_F32;
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: creating backend (type=%d)\n", backend_type);
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: creating backend (type=%d)\n", backend_type);
     fflush(stderr);
 
     // Create backend
     model->backend = create_backend(backend_type, device_id, error);
     if (!model->backend) {
-        fprintf(stderr, "[DEBUG] load_ggml_model: backend failed: %s\n", error.c_str());
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: backend failed: %s\n", error.c_str());
         fflush(stderr);
         return nullptr;
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: backend created\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: backend created\n");
     fflush(stderr);
 
     const enum ggml_type moe_wtype = stcpp_moe_weight_type(backend_type);
@@ -1394,17 +1395,17 @@ GgmlModel* load_ggml_model(
         } else if (moe_wtype == GGML_TYPE_BF16) {
             type_name = "BF16";
         }
-        fprintf(stderr, "[DEBUG] load_ggml_model: MXFP4 disabled (fallback to %s)\n", type_name);
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: MXFP4 disabled (fallback to %s)\n", type_name);
         fflush(stderr);
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: estimating memory\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: estimating memory\n");
     fflush(stderr);
 
     // Estimate memory needed
     size_t weight_mem = estimate_weight_memory(model->hparams, moe_wtype);
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: weight_mem=%zu, creating ggml context\n", weight_mem);
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: weight_mem=%zu, creating ggml context\n", weight_mem);
     fflush(stderr);
 
     // Create ggml context for weights
@@ -1417,12 +1418,12 @@ GgmlModel* load_ggml_model(
     model->ctx_weights = ggml_init(ctx_params);
     if (!model->ctx_weights) {
         error = "Failed to create ggml context";
-        fprintf(stderr, "[DEBUG] load_ggml_model: ggml_init failed\n");
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: ggml_init failed\n");
         fflush(stderr);
         return nullptr;
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: ggml context created, creating tensors\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: ggml context created, creating tensors\n");
     fflush(stderr);
 
     // Create tensors
@@ -1430,7 +1431,7 @@ GgmlModel* load_ggml_model(
     const ModelHParams& hparams = model->hparams;
     const enum ggml_type wtype = hparams.weight_type;
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: creating tok_embd tensor (wtype=%d)\n", wtype);
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: creating tok_embd tensor (wtype=%d)\n", wtype);
     fflush(stderr);
 
     // Token embeddings (use weight_type from config)
@@ -1440,7 +1441,7 @@ GgmlModel* load_ggml_model(
     );
     ggml_set_name(tensors.tok_embd, "token_embd.weight");
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: creating layer tensors\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: creating layer tensors\n");
     fflush(stderr);
 
     // Layer tensors
@@ -1448,13 +1449,13 @@ GgmlModel* load_ggml_model(
     for (int i = 0; i < hparams.n_layer; ++i) {
         if (!create_layer_tensors(model->ctx_weights, tensors.layers[i], hparams, i, moe_wtype)) {
             error = "Failed to create layer tensors";
-            fprintf(stderr, "[DEBUG] load_ggml_model: create_layer_tensors failed at layer %d\n", i);
+            STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: create_layer_tensors failed at layer %d\n", i);
             fflush(stderr);
             return nullptr;
         }
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: layer tensors created, creating output tensors\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: layer tensors created, creating output tensors\n");
     fflush(stderr);
 
     // Output norm (always F32 for metal binary ops)
@@ -1470,22 +1471,22 @@ GgmlModel* load_ggml_model(
     );
     ggml_set_name(tensors.output, "output.weight");
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: allocating backend buffer\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: allocating backend buffer\n");
     fflush(stderr);
 
     // Allocate backend buffer
     model->buffer = ggml_backend_alloc_ctx_tensors(model->ctx_weights, model->backend);
     if (!model->buffer) {
         error = "Failed to allocate backend buffer";
-        fprintf(stderr, "[DEBUG] load_ggml_model: ggml_backend_alloc_ctx_tensors failed\n");
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: ggml_backend_alloc_ctx_tensors failed\n");
         fflush(stderr);
         return nullptr;
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: backend buffer allocated\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: backend buffer allocated\n");
     fflush(stderr);
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: finding safetensors files\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: finding safetensors files\n");
     fflush(stderr);
 
     // Find and load safetensors files
@@ -1494,7 +1495,7 @@ GgmlModel* load_ggml_model(
 
     if (fs::exists(index_path)) {
         // Sharded model
-        fprintf(stderr, "[DEBUG] load_ggml_model: parsing index.json\n");
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: parsing index.json\n");
         fflush(stderr);
         std::unordered_map<std::string, std::string> tensor_to_shard;
         if (!parse_index_json(index_path.string(), safetensors_files, tensor_to_shard, error)) {
@@ -1507,7 +1508,7 @@ GgmlModel* load_ggml_model(
     } else {
         // Single file model
         fs::path single_path = fs::path(model_dir) / "model.safetensors";
-        fprintf(stderr, "[DEBUG] load_ggml_model: checking for %s\n", single_path.string().c_str());
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: checking for %s\n", single_path.string().c_str());
         fflush(stderr);
         if (!fs::exists(single_path)) {
             error = "No safetensors file found in " + model_dir;
@@ -1517,7 +1518,7 @@ GgmlModel* load_ggml_model(
     }
 
     model->shard_paths = safetensors_files;
-    fprintf(stderr, "[DEBUG] load_ggml_model: found %zu safetensors files\n", safetensors_files.size());
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: found %zu safetensors files\n", safetensors_files.size());
     fflush(stderr);
 
     struct Mxfp4Source {
@@ -1560,32 +1561,32 @@ GgmlModel* load_ggml_model(
     // Full implementation would copy data to GPU
 
     for (const auto& shard_path : safetensors_files) {
-        fprintf(stderr, "[DEBUG] load_ggml_model: parsing header for %s\n", shard_path.c_str());
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: parsing header for %s\n", shard_path.c_str());
         fflush(stderr);
 
         SafetensorsHeader header;
         if (!parse_safetensors_header(shard_path, header, error)) {
-            fprintf(stderr, "[DEBUG] load_ggml_model: parse_safetensors_header failed: %s\n", error.c_str());
+            STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: parse_safetensors_header failed: %s\n", error.c_str());
             fflush(stderr);
             return nullptr;
         }
         model->mmap_sizes.push_back(0);  // Will be set by mmap
 
-        fprintf(stderr, "[DEBUG] load_ggml_model: header parsed, %zu tensors, data_offset=%zu\n",
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: header parsed, %zu tensors, data_offset=%zu\n",
                 header.tensors.size(), header.data_offset);
         fflush(stderr);
 
         size_t file_size = 0;
         void* file_data = mmap_file(shard_path, file_size, error);
         if (!file_data) {
-            fprintf(stderr, "[DEBUG] load_ggml_model: mmap_file failed: %s\n", error.c_str());
+            STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: mmap_file failed: %s\n", error.c_str());
             fflush(stderr);
             return nullptr;
         }
         model->mmap_ptrs.push_back(file_data);
         model->mmap_sizes.back() = file_size;
 
-        fprintf(stderr, "[DEBUG] load_ggml_model: file mapped, size=%zu\n", file_size);
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: file mapped, size=%zu\n", file_size);
         fflush(stderr);
 
         // Map tensor data to ggml tensors
@@ -1795,7 +1796,7 @@ GgmlModel* load_ggml_model(
 
                 if (ggml_size == tensor_info.data_size) {
                     // Direct copy - sizes match
-                    fprintf(stderr, "[DEBUG] copying tensor %s, size=%zu\n", tensor_info.name.c_str(), tensor_info.data_size);
+                    STCPP_DEBUG_LOG("[DEBUG] copying tensor %s, size=%zu\n", tensor_info.name.c_str(), tensor_info.data_size);
                     fflush(stderr);
                     ggml_backend_tensor_set(ggml_tensor, src_data, 0, tensor_info.data_size);
                 } else if (ggml_tensor->type == GGML_TYPE_F32 && tensor_info.dtype == DType::BF16 &&
@@ -1807,7 +1808,7 @@ GgmlModel* load_ggml_model(
 
                     bf16_to_f32_buffer(bf16_src, f32_data.data(), n_elements);
 
-                    fprintf(stderr, "[DEBUG] converting tensor %s bf16->f32, n_elements=%zu\n",
+                    STCPP_DEBUG_LOG("[DEBUG] converting tensor %s bf16->f32, n_elements=%zu\n",
                             tensor_info.name.c_str(), n_elements);
                     fflush(stderr);
                     ggml_backend_tensor_set(ggml_tensor, f32_data.data(), 0, ggml_size);
@@ -1820,12 +1821,12 @@ GgmlModel* load_ggml_model(
 
                     f16_to_f32_buffer(f16_src, f32_data.data(), n_elements);
 
-                    fprintf(stderr, "[DEBUG] converting tensor %s f16->f32, n_elements=%zu\n",
+                    STCPP_DEBUG_LOG("[DEBUG] converting tensor %s f16->f32, n_elements=%zu\n",
                             tensor_info.name.c_str(), n_elements);
                     fflush(stderr);
                     ggml_backend_tensor_set(ggml_tensor, f32_data.data(), 0, ggml_size);
                 } else {
-                    fprintf(stderr, "[DEBUG] size mismatch for %s: ggml=%zu, safetensors=%zu\n",
+                    STCPP_DEBUG_LOG("[DEBUG] size mismatch for %s: ggml=%zu, safetensors=%zu\n",
                             tensor_info.name.c_str(), ggml_size, tensor_info.data_size);
                     fflush(stderr);
                 }
@@ -2073,14 +2074,14 @@ GgmlModel* load_ggml_model(
         }
     }
 
-    fprintf(stderr, "[DEBUG] load_ggml_model: all tensors loaded successfully\n");
+    STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: all tensors loaded successfully\n");
     fflush(stderr);
 
     // Debug: verify tok_embd has non-zero values
     if (model->tensors.tok_embd && model->tensors.tok_embd->buffer) {
         std::vector<float> test_data(5);
         ggml_backend_tensor_get(model->tensors.tok_embd, test_data.data(), 0, 5 * sizeof(float));
-        fprintf(stderr, "[DEBUG] load_ggml_model: tok_embd first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: tok_embd first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
                 test_data[0], test_data[1], test_data[2], test_data[3], test_data[4]);
         fflush(stderr);
     }
@@ -2106,7 +2107,7 @@ GgmlModel* load_ggml_model(
             ggml_backend_tensor_get(model->tensors.tok_embd, buffer.data(), 0, tensor_size);
             ggml_backend_tensor_set(model->tensors.output, buffer.data(), 0, tensor_size);
 
-            fprintf(stderr, "[DEBUG] load_ggml_model: tied embeddings - copied tok_embd to output (lm_head), size=%zu\n",
+            STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: tied embeddings - copied tok_embd to output (lm_head), size=%zu\n",
                     tensor_size);
             fflush(stderr);
 
@@ -2114,7 +2115,7 @@ GgmlModel* load_ggml_model(
             ggml_backend_tensor_get(model->tensors.output, test_data.data(), 0, 5 * sizeof(float));
         }
 
-        fprintf(stderr, "[DEBUG] load_ggml_model: output (lm_head) first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
+        STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: output (lm_head) first 5 values: %.6f %.6f %.6f %.6f %.6f\n",
                 test_data[0], test_data[1], test_data[2], test_data[3], test_data[4]);
         fflush(stderr);
     }
@@ -2161,7 +2162,7 @@ GgmlModel* load_ggml_model(
                 fprintf(stderr, "[WARNING] Consider using the Instruct version (e.g., Qwen2.5-0.5B-Instruct).\n");
                 fflush(stderr);
             } else {
-                fprintf(stderr, "[DEBUG] load_ggml_model: Chat tokens have distinct embeddings (Instruct model)\n");
+                STCPP_DEBUG_LOG("[DEBUG] load_ggml_model: Chat tokens have distinct embeddings (Instruct model)\n");
                 fflush(stderr);
             }
         }

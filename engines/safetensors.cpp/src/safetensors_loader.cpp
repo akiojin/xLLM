@@ -4,9 +4,11 @@
  */
 
 #include "safetensors_internal.h"
-#include <fstream>
+#include "debug_log.h"
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <set>
 
 // Use nlohmann/json for JSON parsing (to be added as dependency)
