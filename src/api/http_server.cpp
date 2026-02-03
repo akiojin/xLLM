@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
+#include <stdexcept>
 #include <zlib.h>
 #include "utils/request_id.h"
 
@@ -175,6 +176,12 @@ void HttpServer::start() {
         res.status = 500;
         res.set_content(body.dump(), "application/json");
     });
+
+#ifdef XLLM_TESTING
+    server_.Get("/api/internal-error", [](const httplib::Request&, httplib::Response&) {
+        throw std::runtime_error("internal_error");
+    });
+#endif
 
     openai_.registerRoutes(server_);
     node_.registerRoutes(server_);

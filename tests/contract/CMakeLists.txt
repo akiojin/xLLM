@@ -35,6 +35,7 @@ set(CONTRACT_TEST_SOURCES
     ../../src/core/llama_engine.cpp
     ../../src/core/kv_cache_utils.cpp
     ../../src/core/inference_engine.cpp
+    ../../src/core/harmony_utils.cpp
     ../../src/core/text_manager.cpp
     ../../src/core/request_watchdog.cpp
     ../../src/core/token_watchdog.cpp

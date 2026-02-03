@@ -892,6 +892,12 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
                 return;
             }
 
+            if (engine.isModelLoaded(model_name)) {
+                res.status = 409;
+                res.set_content(R"({"error":"model is currently loaded"})", "application/json");
+                return;
+            }
+
             if (!model_storage.deleteModel(model_name)) {
                 res.status = 500;
                 res.set_content(R"({"error":"delete failed"})", "application/json");

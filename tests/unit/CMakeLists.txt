@@ -78,6 +78,7 @@ set(UNIT_TEST_SOURCES
     ../../src/core/whisper_manager.cpp
     ../../src/core/onnx_tts_manager.cpp
     ../../src/core/sd_manager.cpp
+    ../../src/core/harmony_utils.cpp
     ../../src/runtime/state.cpp
     ../../src/cli/cli_client.cpp
     ../../src/cli/progress_renderer.cpp

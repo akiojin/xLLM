@@ -6,12 +6,15 @@
  */
 
 #include "safetensors_engine.h"
+#include "core/harmony_utils.h"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstring>
 #include <ctime>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -23,6 +26,16 @@
 namespace xllm {
 
 namespace {
+
+#ifndef STCPP_DEBUG_LOG
+#define STCPP_DEBUG_LOG(...) \
+    do { \
+        if (std::getenv("STCPP_DEBUG")) { \
+            std::fprintf(stderr, __VA_ARGS__); \
+            std::fflush(stderr); \
+        } \
+    } while (0)
+#endif
 
 // Buffer size for generated text
 constexpr size_t kMaxOutputLength = 32768;
@@ -176,63 +189,13 @@ bool is_gpt_oss_model(const ModelDescriptor& descriptor, const std::string& mode
     return is_gpt_oss_config(model_dir);
 }
 
-std::string strip_control_tokens(std::string text) {
-    const std::vector<std::string> tokens = {
-        "<|start|>", "<|end|>", "<|message|>", "<|channel|>",
-        "<|return|>", "<|constrain|>",
-        "<|im_start|>", "<|im_end|>",
-        "<|startoftext|>", "<|endoftext|>",
-        "<|eot_id|>", "</s>", "<s>"
-    };
-    for (const auto& t : tokens) {
-        size_t pos = 0;
-        while ((pos = text.find(t, pos)) != std::string::npos) {
-            text.erase(pos, t.size());
-        }
-    }
-    const auto start = text.find_first_not_of(" \t\n\r");
-    if (start == std::string::npos) {
-        return "";
-    }
-    const auto end = text.find_last_not_of(" \t\n\r");
-    return text.substr(start, end - start + 1);
-}
-
-std::string harmony_current_date() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-#if defined(_WIN32)
-    localtime_s(&tm, &t);
-#else
-    localtime_r(&t, &tm);
-#endif
-    char buf[11] = {0};
-    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm) == 0) {
-        return "1970-01-01";
-    }
-    return std::string(buf);
-}
-
-std::string build_harmony_system_message() {
-    std::ostringstream oss;
-    oss << "<|start|>system<|message|>"
-        << "You are ChatGPT, a large language model trained by OpenAI.\n"
-        << "Knowledge cutoff: 2024-06\n"
-        << "Current date: " << harmony_current_date() << "\n\n"
-        << "Reasoning: low\n\n"
-        << "# Valid channels: analysis, commentary, final. Channel must be included for every message.\n"
-        << "<|end|>\n";
-    return oss.str();
-}
-
 std::string extract_gpt_oss_final(const std::string& output) {
     const std::string end_token = "<|return|>";
     const auto end_pos = output.find(end_token);
     if (end_pos == std::string::npos) {
-        return strip_control_tokens(output);
+        return harmony::strip_control_tokens(output);
     }
-    return strip_control_tokens(output.substr(0, end_pos));
+    return harmony::strip_control_tokens(output.substr(0, end_pos));
 }
 
 std::string extract_gpt_oss_final_channel(const std::string& output) {
@@ -259,7 +222,7 @@ std::string extract_gpt_oss_final_channel(const std::string& output) {
     if (stop < msg_pos) {
         return "";
     }
-    return strip_control_tokens(output.substr(msg_pos, stop - msg_pos));
+    return harmony::strip_control_tokens(output.substr(msg_pos, stop - msg_pos));
 }
 
 std::string clean_gpt_oss_output(const std::string& output) {
@@ -272,9 +235,9 @@ std::string clean_gpt_oss_output(const std::string& output) {
     }
     if (output.find("<|end|>") != std::string::npos) {
         const auto end_pos = output.find("<|end|>");
-        return strip_control_tokens(output.substr(0, end_pos));
+        return harmony::strip_control_tokens(output.substr(0, end_pos));
     }
-    std::string result = strip_control_tokens(output);
+    std::string result = harmony::strip_control_tokens(output);
     if (result.empty()) {
         return result;
     }
@@ -308,7 +271,7 @@ std::string clean_gpt_oss_output(const std::string& output) {
 
 std::string build_gpt_oss_prompt(const std::vector<ChatMessage>& messages) {
     std::ostringstream oss;
-    oss << build_harmony_system_message();
+    oss << harmony::build_system_message();
 
     std::string developer_instructions;
     for (const auto& msg : messages) {
@@ -408,8 +371,7 @@ ModelLoadResult SafetensorsEngine::loadModel(const ModelDescriptor& descriptor) 
     }
 
     // Load model (pass model directory, not file path)
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::loadModel: loading model from %s\n", model_dir.c_str());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::loadModel: loading model from %s\n", model_dir.c_str());
 
     ErrorContext error_ctx;
     stcpp_model* model = stcpp_model_load(model_dir.c_str(), errorCallback, &error_ctx);
@@ -420,8 +382,7 @@ ModelLoadResult SafetensorsEngine::loadModel(const ModelDescriptor& descriptor) 
         return result;
     }
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::loadModel: model loaded, creating context\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::loadModel: model loaded, creating context\n");
 
     // Create context
     stcpp_context_params ctx_params = stcpp_context_default_params();
@@ -438,13 +399,11 @@ ModelLoadResult SafetensorsEngine::loadModel(const ModelDescriptor& descriptor) 
         apply_kv_quantization(*quantization, ctx_params);
     }
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::loadModel: calling stcpp_context_new\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::loadModel: calling stcpp_context_new\n");
 
     stcpp_context* ctx = stcpp_context_new(model, ctx_params);
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::loadModel: stcpp_context_new returned ctx=%p\n", (void*)ctx);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::loadModel: stcpp_context_new returned ctx=%p\n", (void*)ctx);
 
     if (!ctx) {
         stcpp_model_free(model);
@@ -472,12 +431,17 @@ ModelLoadResult SafetensorsEngine::loadModel(const ModelDescriptor& descriptor) 
 
     loaded_models_[descriptor.name] = std::move(loaded);
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::loadModel: model stored, returning success\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::loadModel: model stored, returning success\n");
 
     result.success = true;
     result.error_code = EngineErrorCode::kOk;
     return result;
+}
+
+bool SafetensorsEngine::isModelLoaded(const std::string& model_name) const {
+    std::lock_guard<std::mutex> lock(models_mutex_);
+    auto it = loaded_models_.find(model_name);
+    return it != loaded_models_.end() && it->second;
 }
 
 SafetensorsEngine::LoadedModel* SafetensorsEngine::getOrLoadModel(
@@ -569,23 +533,19 @@ void SafetensorsEngine::convertSamplingParams(const InferenceParams& params,
 std::string SafetensorsEngine::generateChat(const std::vector<ChatMessage>& messages,
                                             const ModelDescriptor& descriptor,
                                             const InferenceParams& params) const {
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateChat: entered for model %s\n", descriptor.name.c_str());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateChat: entered for model %s\n", descriptor.name.c_str());
 
     auto* loaded = getOrLoadModel(descriptor);
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateChat: getOrLoadModel returned %p\n", (void*)loaded);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateChat: getOrLoadModel returned %p\n", (void*)loaded);
     if (!loaded) {
         return "";
     }
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateChat: calling buildChatPrompt\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateChat: calling buildChatPrompt\n");
 
     std::string prompt = buildChatPrompt(messages, loaded);
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateChat: prompt built (len=%zu), calling generateCompletion\n", prompt.length());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateChat: prompt built (len=%zu), calling generateCompletion\n", prompt.length());
 
     std::string output = generateCompletion(prompt, descriptor, params);
     if (loaded->is_gpt_oss && !output.empty()) {
@@ -597,26 +557,22 @@ std::string SafetensorsEngine::generateChat(const std::vector<ChatMessage>& mess
 std::string SafetensorsEngine::generateCompletion(const std::string& prompt,
                                                   const ModelDescriptor& descriptor,
                                                   const InferenceParams& params) const {
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateCompletion: entered\n");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateCompletion: entered\n");
 
     auto* loaded = getOrLoadModel(descriptor);
     if (!loaded) {
-        fprintf(stderr, "[DEBUG] SafetensorsEngine::generateCompletion: model not loaded\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateCompletion: model not loaded\n");
         return "";
     }
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateCompletion: model loaded, ctx=%p\n", (void*)loaded->ctx);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateCompletion: model loaded, ctx=%p\n", (void*)loaded->ctx);
 
     stcpp_sampling_params sp;
     convertSamplingParams(params, &sp);
 
     size_t max_tokens = params.max_tokens > 0 ? params.max_tokens : kDefaultMaxTokens;
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateCompletion: calling stcpp_generate with max_tokens=%zu\n", max_tokens);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateCompletion: calling stcpp_generate with max_tokens=%zu\n", max_tokens);
 
     std::vector<char> output(kMaxOutputLength);
     stcpp_error err = stcpp_generate(
@@ -624,8 +580,7 @@ std::string SafetensorsEngine::generateCompletion(const std::string& prompt,
         static_cast<int32_t>(max_tokens),
         output.data(), static_cast<int32_t>(output.size()));
 
-    fprintf(stderr, "[DEBUG] SafetensorsEngine::generateCompletion: stcpp_generate returned %d\n", err);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] SafetensorsEngine::generateCompletion: stcpp_generate returned %d\n", err);
 
     if (err != STCPP_OK) {
         return "";

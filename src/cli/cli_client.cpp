@@ -119,6 +119,7 @@ CliResponse<nlohmann::json> CliClient::listRunningModels() {
 
 CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCallback progress_cb) {
     CliResponse<void> response;
+    std::string stream_error;
 
     // Prefer streaming (progress) when available.
     {
@@ -131,24 +132,25 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
         body["stream"] = true;
 
         std::string pending;
-        std::string stream_error;
-
         auto res = client.Post(
             "/api/models/pull",
             httplib::Headers{},
             body.dump(),
             "application/json",
             [&progress_cb, &pending, &stream_error](const char* data, size_t len) -> bool {
+                if (!progress_cb) return true;
+
                 pending.append(data, len);
 
-                size_t newline = std::string::npos;
-                while ((newline = pending.find('\n')) != std::string::npos) {
+                // Parse NDJSON progress updates, buffering partial lines.
+                while (true) {
+                    const size_t newline = pending.find('\n');
+                    if (newline == std::string::npos) {
+                        break;
+                    }
                     std::string line = pending.substr(0, newline);
                     pending.erase(0, newline + 1);
-
-                    if (line.empty()) {
-                        continue;
-                    }
+                    if (line.empty()) continue;
                     try {
                         auto json = nlohmann::json::parse(line);
                         if (json.contains("error") && json["error"].is_string() && stream_error.empty()) {
@@ -176,23 +178,16 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
         );
 
         if (res) {
-            if (res->status != 200) {
-                response.error = CliError::GeneralError;
-                try {
-                    auto json = nlohmann::json::parse(res->body);
-                    response.error_message = json.value("error", res->body);
-                } catch (...) {
-                    response.error_message = res->body;
-                }
+            if (res->status == 200 && stream_error.empty()) {
+                response.error = CliError::Success;
                 return response;
             }
-            if (!stream_error.empty()) {
-                response.error = CliError::GeneralError;
-                response.error_message = stream_error;
-                return response;
+            try {
+                auto json = nlohmann::json::parse(res->body);
+                stream_error = json.value("error", res->body);
+            } catch (...) {
+                stream_error = res->body;
             }
-            response.error = CliError::Success;
-            return response;
         }
     }
 
@@ -209,7 +204,7 @@ CliResponse<void> CliClient::pullModel(const std::string& model_name, ProgressCa
         auto res = client.Post("/api/models/pull", body.dump(), "application/json");
         if (!res) {
             response.error = CliError::ConnectionError;
-            response.error_message = "Failed to connect to server";
+            response.error_message = stream_error.empty() ? "Failed to connect to server" : stream_error;
             return response;
         }
         if (res->status != 200) {

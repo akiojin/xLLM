@@ -1,5 +1,6 @@
 #include "api/node_endpoints.h"
 
+#include <cstdlib>
 #include <deque>
 #include <fstream>
 #include <stdexcept>
@@ -252,7 +253,7 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
     };
     server.Get("/api/metrics", handle_metrics);
 
-    auto handle_metrics_prom = [this, &populate_prometheus](const httplib::Request&, httplib::Response& res) {
+    auto handle_metrics_prom = [this, populate_prometheus](const httplib::Request&, httplib::Response& res) {
         populate_prometheus();
         res.set_content(exporter_.render(), "text/plain");
     };
@@ -278,10 +279,13 @@ void NodeEndpoints::registerRoutes(httplib::Server& server) {
     };
     server.Post("/api/log/level", handle_log_level_post);
 
-    auto handle_internal_error = [](const httplib::Request&, httplib::Response&) {
-        throw std::runtime_error("boom");
-    };
-    server.Get("/api/internal-error", handle_internal_error);
+    const char* enable_internal = std::getenv("XLLM_ENABLE_INTERNAL_ERROR");
+    if (enable_internal && *enable_internal && std::string(enable_internal) != "0") {
+        auto handle_internal_error = [](const httplib::Request&, httplib::Response&) {
+            throw std::runtime_error("boom");
+        };
+        server.Get("/api/internal-error", handle_internal_error);
+    }
 }
 
 }  // namespace xllm
