@@ -9,10 +9,14 @@
 #include <vector>
 #include <filesystem>
 #include <optional>
+#include <exception>
 #include <algorithm>
 #include <cctype>
 #include <mutex>
 #include <unordered_map>
+#include <cstdio>
+#include <cstring>
+#include <unistd.h>
 #include <nlohmann/json.hpp>
 
 #include "system/gpu_detector.h"
@@ -38,6 +42,52 @@
 #include <cstdlib>
 
 namespace {
+
+std::atomic<int> g_last_signal{0};
+
+void writeStderr(const char* msg) {
+    if (!msg) return;
+    ::write(STDERR_FILENO, msg, std::strlen(msg));
+}
+
+void logSignal(int signal) {
+    char buf[128];
+    int len = std::snprintf(buf, sizeof(buf), "xllm: received signal %d\n", signal);
+    if (len > 0) {
+        ::write(STDERR_FILENO, buf, static_cast<size_t>(len));
+    }
+}
+
+void signalHandler(int signal) {
+    g_last_signal.store(signal, std::memory_order_relaxed);
+    logSignal(signal);
+    xllm::request_shutdown();
+}
+
+void fatalSignalHandler(int signal) {
+    g_last_signal.store(signal, std::memory_order_relaxed);
+    logSignal(signal);
+    std::signal(signal, SIG_DFL);
+    std::raise(signal);
+}
+
+void installSignalHandlers() {
+    struct sigaction sa{};
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = signalHandler;
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGHUP, &sa, nullptr);
+
+    struct sigaction fa{};
+    sigemptyset(&fa.sa_mask);
+    fa.sa_flags = 0;
+    fa.sa_handler = fatalSignalHandler;
+    sigaction(SIGABRT, &fa, nullptr);
+    sigaction(SIGSEGV, &fa, nullptr);
+    sigaction(SIGBUS, &fa, nullptr);
+}
 
 struct HfModelRef {
     std::string repo;
@@ -982,23 +1032,31 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
     return 0;
 }
 
-void signalHandler(int signal) {
-    std::cout << "Received signal " << signal << ", shutting down..." << std::endl;
-    xllm::request_shutdown();
-}
-
 #ifndef XLLM_TESTING
 int main(int argc, char* argv[]) {
+    installSignalHandlers();
+    std::set_terminate([]() {
+        writeStderr("xllm: std::terminate called\n");
+        std::_Exit(1);
+    });
+
+    std::atexit([]() {
+        int sig = g_last_signal.load(std::memory_order_relaxed);
+        if (sig != 0) {
+            char buf[128];
+            int len = std::snprintf(buf, sizeof(buf), "xllm: exiting after signal %d\n", sig);
+            if (len > 0) {
+                ::write(STDERR_FILENO, buf, static_cast<size_t>(len));
+            }
+        }
+    });
+
     // Parse CLI arguments first
     auto cli_result = xllm::parseCliArgs(argc, argv);
     if (cli_result.should_exit) {
         std::cout << cli_result.output;
         return cli_result.exit_code;
     }
-
-    // Set up signal handlers
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
 
     // Branch based on subcommand
     switch (cli_result.subcommand) {
