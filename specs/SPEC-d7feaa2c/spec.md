@@ -90,7 +90,7 @@ API endpoints
 - gpt/nemotron/qwen/glm model families must be covered by mandatory tests.
 - Verification can be satisfied via model verification suite or
   integration/E2E coverage, but it must be recorded.
-- Model downloads for tests must use `xllm pull`.
+- Model downloads for tests must use `xllm pull` (server mode or `--direct`).
 - After each test, delete the model with `xllm rm <MODEL>`.
 - Concrete reference model IDs are defined in `specs/reference-models.md`.
 

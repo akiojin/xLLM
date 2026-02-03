@@ -46,6 +46,7 @@ struct RunOptions {
 /// Options for pull command
 struct PullOptions {
     std::string model;
+    bool direct{false};
 };
 
 /// Options for show command

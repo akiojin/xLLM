@@ -111,7 +111,7 @@ std::string getPullHelpMessage() {
     oss << "xllm pull - Download a model\n";
     oss << "\n";
     oss << "USAGE:\n";
-    oss << "    xllm pull <MODEL>\n";
+    oss << "    xllm pull <MODEL> [--direct]\n";
     oss << "\n";
     oss << "ARGUMENTS:\n";
     oss << "    <MODEL>          Model name or HuggingFace URL\n";
@@ -119,9 +119,11 @@ std::string getPullHelpMessage() {
     oss << "                              https://huggingface.co/...\n";
     oss << "\n";
     oss << "OPTIONS:\n";
+    oss << "    --direct        Download without a running xllm server\n";
     oss << "    -h, --help       Print help\n";
     oss << "\n";
     oss << "ENVIRONMENT:\n";
+    oss << "    XLLM_PULL_DIRECT=1  Always use direct download mode\n";
     oss << "    HF_TOKEN         HuggingFace token (required for gated models)\n";
     return oss.str();
 }
@@ -416,9 +418,17 @@ CliResult parseCliArgs(int argc, char* argv[]) {
 
         // Parse pull options - model name
         for (int i = 2; i < argc; ++i) {
-            if (argv[i][0] != '-') {
+            if (std::strcmp(argv[i], "--direct") == 0) {
+                result.pull_options.direct = true;
+            } else if (argv[i][0] != '-' && result.pull_options.model.empty()) {
                 result.pull_options.model = argv[i];
-                break;
+            }
+        }
+
+        if (!result.pull_options.direct) {
+            const char* env_direct = std::getenv("XLLM_PULL_DIRECT");
+            if (env_direct && (*env_direct == '1' || std::strcmp(env_direct, "true") == 0)) {
+                result.pull_options.direct = true;
             }
         }
 

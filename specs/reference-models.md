@@ -11,7 +11,7 @@ Official test targets:
 
 Testing rule:
 
-- Model downloads for tests MUST use `xllm pull` (do not use direct downloads or custom scripts).
+- Model downloads for tests MUST use `xllm pull` (server mode or `--direct`; no external scripts).
 - After each test, delete the model with `xllm rm <MODEL>` to avoid leaving large artifacts.
 
 ## Text (safetensors)
