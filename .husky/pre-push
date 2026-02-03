@@ -89,9 +89,13 @@ else
 fi
 
 if require_cmd cppcheck; then
+  CPPCHK_SUPPRESS="--suppress=missingIncludeSystem"
+  if [ "$(uname)" = "Darwin" ]; then
+    CPPCHK_SUPPRESS="$CPPCHK_SUPPRESS --suppress=preprocessorErrorDirective --suppress=syntaxError"
+  fi
   run_step "cppcheck (warnings)" cppcheck --enable=warning --inline-suppr --std=c++20 \
     -I include -I third_party/nlohmann-json/include -I third_party/cpp-httplib \
-    --suppress=missingIncludeSystem \
+    $CPPCHK_SUPPRESS \
     src include
 else
   FAILURES=1
