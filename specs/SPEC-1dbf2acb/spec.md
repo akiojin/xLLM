@@ -83,7 +83,7 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **メタデータキャッシュ**: モデルメタデータをキャッシュして高速化
 - **対応形式**: llama.cppがサポートする全形式（GGUF、AWQ、GPTQ、EXL2等）+ safetensors
 - **エンジン選択**: ファイル形式で自動判定（GGUF→llama.cpp、それ以外→safetensors.cpp）
-  - safetensors.cppは `vendor/safetensors.cpp` を使用（ggmlバックエンド）
+  - safetensors.cppは `engines/safetensors.cpp` を使用（ggmlバックエンド）
 - **ローカルファイル**: `xllm run /path/to/model.gguf` で直接指定可能
 - **複数バリアント**: 同一モデルの異なる量子化を同時ロード可能
 - **モデルレプリカ**: 同一モデルを複数インスタンスでロード可能
@@ -286,7 +286,7 @@ llama3:8b     abc123def     4.7 GB    100% GPU     4 minutes from now
 | POST `/v1/images/generations` | 画像生成 |
 | POST `/v1/responses` | Responses API（完全互換） |
 
-### xLLM独自エンドポイント（/v0/）
+### xLLM独自エンドポイント（/api/）
 
 | エンドポイント | 説明 |
 |----------------|------|
@@ -294,7 +294,7 @@ llama3:8b     abc123def     4.7 GB    100% GPU     4 minutes from now
 | GET `/api/system` | システム情報（GPU/CPU/RAM/バージョン全て） |
 | GET `/api/metrics/prom` | Prometheus形式メトリクス |
 
-**注**: `/v0/models/load` と `/v0/models/unload` は**不要**（オンデマンドロード + LRUアンロードで管理）
+**注**: `/api/models/load` と `/api/models/unload` は**不要**（オンデマンドロード + LRUアンロードで管理）
 
 ## llmlb連携
 

@@ -119,6 +119,9 @@ public:
     /// モデルが利用可能かを判定（エンジン/メタデータに基づく）
     bool isModelSupported(const ModelDescriptor& descriptor) const;
 
+    /// モデルがロード済みかどうかを判定
+    bool isModelLoaded(const std::string& model_name) const;
+
 
     /// 登録済みのランタイム一覧を取得（プラグインからロードしたものを含む）
     std::vector<std::string> getRegisteredRuntimes() const;

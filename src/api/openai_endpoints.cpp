@@ -1342,9 +1342,11 @@ void OpenAIEndpoints::registerRoutes(httplib::Server& server) {
             int total_completion_tokens = 0;
             bool tool_choice_failed = false;
             std::string tool_choice_error;
+            std::vector<TokenLogprob> logprobs_out;
             for (int i = 0; i < params.n; ++i) {
                 // T050: Prepare logprobs output buffer if requested
-                std::vector<TokenLogprob> logprobs_out;
+                logprobs_out.clear();
+                params.out_logprobs = nullptr;
                 if (logprobs_req.enabled) {
                     params.logprobs = true;
                     params.top_logprobs = static_cast<int>(logprobs_req.top_logprobs);
@@ -1664,9 +1666,11 @@ void OpenAIEndpoints::registerRoutes(httplib::Server& server) {
             // T038: n回の生成ループでchoices配列を構築
             json choices = json::array();
             int total_completion_tokens = 0;
+            std::vector<TokenLogprob> logprobs_out;
             for (int i = 0; i < params.n; ++i) {
                 // T050: Prepare logprobs output buffer if requested
-                std::vector<TokenLogprob> logprobs_out;
+                logprobs_out.clear();
+                params.out_logprobs = nullptr;
                 if (logprobs_req.enabled) {
                     params.logprobs = true;
                     params.top_logprobs = static_cast<int>(logprobs_req.top_logprobs);

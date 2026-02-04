@@ -4,9 +4,11 @@
  */
 
 #include "safetensors_internal.h"
-#include <fstream>
+#include "debug_log.h"
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <set>
 
 // Use nlohmann/json for JSON parsing (to be added as dependency)
@@ -82,6 +84,9 @@ std::string parse_string(const char*& p, const char* end) {
     std::string result;
 
     auto append_utf8 = [&](uint32_t codepoint) {
+        if (codepoint > 0x10FFFF || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+            codepoint = 0xFFFD;
+        }
         if (codepoint <= 0x7F) {
             result.push_back(static_cast<char>(codepoint));
         } else if (codepoint <= 0x7FF) {
@@ -144,7 +149,7 @@ std::string parse_string(const char*& p, const char* end) {
             case 'u': {
                 uint32_t codepoint = 0;
                 if (!parse_hex4(p, codepoint)) {
-                    result.push_back('u');
+                    append_utf8(0xFFFD);
                     break;
                 }
                 p += 4;
@@ -154,8 +159,17 @@ std::string parse_string(const char*& p, const char* end) {
                         if (parse_hex4(p + 2, low) && low >= 0xDC00 && low <= 0xDFFF) {
                             codepoint = 0x10000 + (((codepoint - 0xD800) << 10) | (low - 0xDC00));
                             p += 6;
+                        } else {
+                            append_utf8(0xFFFD);
+                            break;
                         }
+                    } else {
+                        append_utf8(0xFFFD);
+                        break;
                     }
+                } else if (codepoint >= 0xDC00 && codepoint <= 0xDFFF) {
+                    append_utf8(0xFFFD);
+                    break;
                 }
                 append_utf8(codepoint);
             } break;
@@ -272,9 +286,6 @@ bool parse_safetensors_header(
     const char* p = header_buf.data();
     const char* end = p + header_size;
 
-    fprintf(stderr, "[DEBUG] parse_safetensors_header: header_size=%zu, first 100 chars: %.100s\n",
-            header_size, header_buf.data());
-    fflush(stderr);
 
     json_parser::skip_ws(p, end);
     if (p >= end || *p != '{') {
@@ -290,8 +301,6 @@ bool parse_safetensors_header(
 
         // Parse key
         std::string key = json_parser::parse_string(p, end);
-        fprintf(stderr, "[DEBUG] parse_safetensors_header: parsed key='%s'\n", key.c_str());
-        fflush(stderr);
         if (key.empty()) {
             error = "Invalid JSON: expected key";
             return false;
@@ -377,17 +386,12 @@ bool parse_safetensors_header(
 
             header.tensors.push_back(info);
             tensor_count++;
-            fprintf(stderr, "[DEBUG] parse_safetensors_header: added tensor #%d '%s' dtype=%d shape_dims=%zu\n",
-                    tensor_count, info.name.c_str(), static_cast<int>(info.dtype), info.shape.size());
-            fflush(stderr);
         }
 
         json_parser::skip_ws(p, end);
         if (p < end && *p == ',') ++p;
     }
 
-    fprintf(stderr, "[DEBUG] parse_safetensors_header: finished, total tensors=%zu\n", header.tensors.size());
-    fflush(stderr);
     return true;
 }
 

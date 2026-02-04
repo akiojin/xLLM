@@ -4,18 +4,39 @@
  */
 
 #include "safetensors_internal.h"
+#include "debug_log.h"
 #include <fstream>
 #include <filesystem>
 #include <sstream>
 #include <array>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <regex>
 
-#include "../../llama.cpp/src/unicode.h"
+#include <vector>
+
+// Provided by llama.cpp (linked via xLLM). Keep declaration local to avoid fragile includes.
+std::vector<std::string> unicode_regex_split(const std::string& text,
+                                             const std::vector<std::string>& regex_exprs);
 
 namespace stcpp {
+
+static bool stcpp_debug_enabled() {
+    const char* env = std::getenv("STCPP_DEBUG");
+    return env && *env && std::strcmp(env, "0") != 0;
+}
+
+#ifndef STCPP_DEBUG_LOG
+#define STCPP_DEBUG_LOG(fmt, ...) \
+    do { \
+        if (stcpp_debug_enabled()) { \
+            fprintf(stderr, fmt, ##__VA_ARGS__); \
+            fflush(stderr); \
+        } \
+    } while (0)
+#endif
 
 namespace json_parser {
 extern void skip_ws(const char*& p, const char* end);
@@ -42,12 +63,16 @@ static bool extract_pretokenizer_regex(const std::string& content, std::string& 
     const char* end = p + content.size();
     const char* key = "\"Regex\"";
     const char* found = std::strstr(p, key);
+    while (found) {
+        const char* q = found + std::strlen(key);
+        json_parser::skip_ws(q, end);
+        if (q < end && *q == ':') {
+            p = q + 1;
+            break;
+        }
+        found = std::strstr(found + 1, key);
+    }
     if (!found) return false;
-
-    p = found + std::strlen(key);
-    while (p < end && *p != ':') ++p;
-    if (p >= end) return false;
-    ++p;
     json_parser::skip_ws(p, end);
     if (p >= end || *p != '"') return false;
 
@@ -97,7 +122,7 @@ static bool detect_pretokenizer_byte_encoded(const std::string& content) {
         return false;
     }
     const std::string_view slice(content.data() + pre_pos,
-                                 std::min<size_t>(content.size() - pre_pos, 4096));
+                                 content.size() - pre_pos);
     const bool has_split = (slice.find("\"type\":\"Split\"") != std::string_view::npos) ||
                            (slice.find("\"type\": \"Split\"") != std::string_view::npos);
     if (has_split) {
@@ -301,8 +326,7 @@ static bool parse_added_tokens(
                 // Mark special tokens
                 if (is_special) {
                     tokenizer.special_tokens.insert(content);
-                    fprintf(stderr, "[DEBUG] Special token added: '%s' id=%d\n", content.c_str(), id);
-                    fflush(stderr);
+                    STCPP_DEBUG_LOG("[DEBUG] Special token added: '%s' id=%d\n", content.c_str(), id);
                 }
 
                 // Identify bos/eos/pad tokens by content
@@ -423,26 +447,22 @@ bool load_tokenizer(
     if (extract_pretokenizer_regex(content, pretokenizer_regex)) {
         tokenizer.pretokenizer_regex = normalize_pretokenizer_regex(pretokenizer_regex);
         tokenizer.pretokenizer_byte_encoded = detect_pretokenizer_byte_encoded(content);
-        fprintf(stderr, "[DEBUG] load_tokenizer: pretokenizer regex loaded (len=%zu, byte_encoded=%s)\n",
-                tokenizer.pretokenizer_regex.size(),
-                tokenizer.pretokenizer_byte_encoded ? "true" : "false");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] load_tokenizer: pretokenizer regex loaded (len=%zu, byte_encoded=%s)\n",
+                        tokenizer.pretokenizer_regex.size(),
+                        tokenizer.pretokenizer_byte_encoded ? "true" : "false");
     }
 
-    fprintf(stderr, "[DEBUG] load_tokenizer: vocab loaded, vocab_size=%zu, merges=%zu, ignore_merges=%s\n",
-            tokenizer.vocab.size(), tokenizer.merges.size(),
-            tokenizer.ignore_merges ? "true" : "false");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] load_tokenizer: vocab loaded, vocab_size=%zu, merges=%zu, ignore_merges=%s\n",
+                    tokenizer.vocab.size(), tokenizer.merges.size(),
+                    tokenizer.ignore_merges ? "true" : "false");
 
     if (tokenizer.ignore_merges && !tokenizer.merges.empty()) {
         const auto has_token = [&tokenizer](const std::string& tok) {
-            return std::find(tokenizer.special_tokens.begin(),
-                             tokenizer.special_tokens.end(), tok) != tokenizer.special_tokens.end();
+            return tokenizer.special_tokens.count(tok) > 0;
         };
         if (has_token("<|start|>") && has_token("<|message|>") && has_token("<|channel|>")) {
             tokenizer.ignore_merges = false;
-            fprintf(stderr, "[DEBUG] load_tokenizer: override ignore_merges=false for GPT-OSS-style tokenizer\n");
-            fflush(stderr);
+            STCPP_DEBUG_LOG("[DEBUG] load_tokenizer: override ignore_merges=false for GPT-OSS-style tokenizer\n");
         }
     }
 
@@ -517,19 +537,22 @@ bool load_tokenizer(
         std::string cfg_content((std::istreambuf_iterator<char>(model_config_file)),
                                  std::istreambuf_iterator<char>());
         int32_t token_id = -1;
-        if (extract_config_token_id(cfg_content, "eos_token_id", token_id)) {
+        if (tokenizer.eos_token_id < 0 &&
+            extract_config_token_id(cfg_content, "eos_token_id", token_id)) {
             if (token_id >= 0 && token_id < static_cast<int32_t>(tokenizer.vocab.size())) {
                 tokenizer.eos_token_id = token_id;
             }
         }
         token_id = -1;
-        if (extract_config_token_id(cfg_content, "bos_token_id", token_id)) {
+        if (tokenizer.bos_token_id < 0 &&
+            extract_config_token_id(cfg_content, "bos_token_id", token_id)) {
             if (token_id >= 0 && token_id < static_cast<int32_t>(tokenizer.vocab.size())) {
                 tokenizer.bos_token_id = token_id;
             }
         }
         token_id = -1;
-        if (extract_config_token_id(cfg_content, "pad_token_id", token_id)) {
+        if (tokenizer.pad_token_id < 0 &&
+            extract_config_token_id(cfg_content, "pad_token_id", token_id)) {
             if (token_id >= 0 && token_id < static_cast<int32_t>(tokenizer.vocab.size())) {
                 tokenizer.pad_token_id = token_id;
             }
@@ -537,9 +560,8 @@ bool load_tokenizer(
     }
 
     // Debug: Print tokenizer info
-    fprintf(stderr, "[DEBUG] load_tokenizer: vocab_size=%zu, bos_id=%d, eos_id=%d, pad_id=%d\n",
-            tokenizer.vocab.size(), tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] load_tokenizer: vocab_size=%zu, bos_id=%d, eos_id=%d, pad_id=%d\n",
+                    tokenizer.vocab.size(), tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id);
 
     return true;
 }
@@ -565,9 +587,8 @@ static std::string codepoint_to_utf8(uint32_t codepoint) {
 }
 
 static const std::array<uint32_t, 256>& gpt2_byte_to_unicode_codepoints() {
-    static std::array<uint32_t, 256> table{};
-    static bool initialized = false;
-    if (!initialized) {
+    static const std::array<uint32_t, 256> table = []() {
+        std::array<uint32_t, 256> out{};
         std::vector<int> bs;
         bs.reserve(256);
         for (int b = 33; b <= 126; ++b) bs.push_back(b);
@@ -585,27 +606,26 @@ static const std::array<uint32_t, 256>& gpt2_byte_to_unicode_codepoints() {
         }
 
         for (size_t i = 0; i < bs.size(); ++i) {
-            table[static_cast<size_t>(bs[i])] = static_cast<uint32_t>(cs[i]);
+            out[static_cast<size_t>(bs[i])] = static_cast<uint32_t>(cs[i]);
         }
-        initialized = true;
-    }
+        return out;
+    }();
     return table;
 }
 
 static const std::array<int32_t, 512>& gpt2_unicode_to_byte_map() {
-    static std::array<int32_t, 512> table{};
-    static bool initialized = false;
-    if (!initialized) {
-        table.fill(-1);
+    static const std::array<int32_t, 512> table = []() {
+        std::array<int32_t, 512> out{};
+        out.fill(-1);
         const auto& b2u = gpt2_byte_to_unicode_codepoints();
         for (size_t b = 0; b < b2u.size(); ++b) {
             const uint32_t cp = b2u[b];
-            if (cp < table.size()) {
-                table[cp] = static_cast<int32_t>(b);
+            if (cp < out.size()) {
+                out[cp] = static_cast<int32_t>(b);
             }
         }
-        initialized = true;
-    }
+        return out;
+    }();
     return table;
 }
 
@@ -713,8 +733,7 @@ static std::vector<std::string> pretokenize_segment(
         }
         return ::unicode_regex_split(input, {tokenizer.pretokenizer_regex});
     } catch (const std::exception& ex) {
-        fprintf(stderr, "[DEBUG] tokenize: pretokenizer regex failed: %s\n", ex.what());
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] tokenize: pretokenizer regex failed: %s\n", ex.what());
         already_byte_encoded = false;
         return {segment};
     }
@@ -748,8 +767,7 @@ static void bpe_tokenize_segment(
         i += char_len;
     }
 
-    fprintf(stderr, "[DEBUG] tokenize: split into %zu chars\n", chars.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] tokenize: split into %zu chars\n", chars.size());
 
     if (tokenizer.ignore_merges) {
         int found = 0, not_found = 0, byte_fallback = 0;
@@ -773,9 +791,8 @@ static void bpe_tokenize_segment(
                 }
             }
         }
-        fprintf(stderr, "[DEBUG] tokenize: ignore_merges=true, found=%d, not_found=%d, byte_fallback=%d\n",
-                found, not_found, byte_fallback);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] tokenize: ignore_merges=true, found=%d, not_found=%d, byte_fallback=%d\n",
+                        found, not_found, byte_fallback);
         return;
     }
 
@@ -812,8 +829,7 @@ static void bpe_tokenize_segment(
         }
     }
 
-    fprintf(stderr, "[DEBUG] tokenize: after BPE, %zu pieces\n", chars.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] tokenize: after BPE, %zu pieces\n", chars.size());
 
     // Look up token IDs
     int found = 0, not_found = 0, byte_fallback = 0;
@@ -838,9 +854,8 @@ static void bpe_tokenize_segment(
         }
     }
 
-    fprintf(stderr, "[DEBUG] tokenize: bpe lookup found=%d, not_found=%d, byte_fallback=%d\n",
-            found, not_found, byte_fallback);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] tokenize: bpe lookup found=%d, not_found=%d, byte_fallback=%d\n",
+                    found, not_found, byte_fallback);
 }
 
 /* Simple BPE tokenization with special token handling */
@@ -851,23 +866,20 @@ bool tokenize(
     bool add_bos,
     std::string& error
 ) {
-    fprintf(stderr, "[DEBUG] tokenize: entered, text_len=%zu, vocab_size=%zu, merges=%zu, special_tokens=%zu, ignore_merges=%s\n",
-            text.size(), tokenizer.vocab.size(), tokenizer.merges.size(), tokenizer.special_tokens.size(),
-            tokenizer.ignore_merges ? "true" : "false");
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] tokenize: entered, text_len=%zu, vocab_size=%zu, merges=%zu, special_tokens=%zu, ignore_merges=%s\n",
+                    text.size(), tokenizer.vocab.size(), tokenizer.merges.size(), tokenizer.special_tokens.size(),
+                    tokenizer.ignore_merges ? "true" : "false");
 
     tokens.clear();
 
     // Add BOS token if requested
     if (add_bos && tokenizer.bos_token_id >= 0) {
         tokens.push_back(tokenizer.bos_token_id);
-        fprintf(stderr, "[DEBUG] tokenize: added BOS token %d\n", tokenizer.bos_token_id);
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] tokenize: added BOS token %d\n", tokenizer.bos_token_id);
     }
 
     if (text.empty()) {
-        fprintf(stderr, "[DEBUG] tokenize: empty text, returning\n");
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] tokenize: empty text, returning\n");
         return true;
     }
 
@@ -884,9 +896,8 @@ bool tokenize(
                 auto it = tokenizer.vocab_to_id.find(special);
                 if (it != tokenizer.vocab_to_id.end()) {
                     tokens.push_back(it->second);
-                    fprintf(stderr, "[DEBUG] tokenize: found special token '%s' -> %d\n",
-                            special.c_str(), it->second);
-                    fflush(stderr);
+                    STCPP_DEBUG_LOG("[DEBUG] tokenize: found special token '%s' -> %d\n",
+                                    special.c_str(), it->second);
                 }
                 pos += special.size();
                 found_special = true;
@@ -918,21 +929,25 @@ bool tokenize(
         }
     }
 
-    fprintf(stderr, "[DEBUG] tokenize: final_tokens=%zu\n", tokens.size());
-    if (tokens.size() > 0) {
-        fprintf(stderr, "[DEBUG] tokenize: first 5 tokens: ");
-        for (size_t i = 0; i < std::min(tokens.size(), (size_t)5); i++) {
+    STCPP_DEBUG_LOG("[DEBUG] tokenize: final_tokens=%zu\n", tokens.size());
+    if (tokens.size() > 0 && stcpp_debug_enabled()) {
+        STCPP_DEBUG_LOG("[DEBUG] tokenize: first 5 tokens: ");
+        for (size_t i = 0; i < std::min(tokens.size(), static_cast<size_t>(5)); i++) {
             fprintf(stderr, "%d ", tokens[i]);
         }
         fprintf(stderr, "\n");
+        fflush(stderr);
     }
-    fflush(stderr);
 
     return true;
 }
 
 /* Detect if tokenizer uses GPT-2 byte-level encoding */
 static bool uses_gpt2_byte_encoding(const TokenizerImpl& tokenizer) {
+    int cached = tokenizer.uses_gpt2_byte_encoding.load(std::memory_order_acquire);
+    if (cached != -1) {
+        return cached == 1;
+    }
     // Check for GPT-2 style tokens like "Ġ" (U+0120 = space in GPT-2 encoding)
     // Qwen2/LLama3 use different encoding where tokens are plain UTF-8
     //
@@ -967,9 +982,16 @@ static bool uses_gpt2_byte_encoding(const TokenizerImpl& tokenizer) {
 
     // If more than 10% of checked tokens have GPT-2 markers, assume GPT-2 encoding
     bool uses_gpt2 = (checked > 0) && (gpt2_marker_count * 10 > checked);
-    fprintf(stderr, "[DEBUG] uses_gpt2_byte_encoding: checked=%zu, gpt2_markers=%zu, uses_gpt2=%d\n",
-            checked, gpt2_marker_count, uses_gpt2);
-    fflush(stderr);
+    int expected = -1;
+    if (!tokenizer.uses_gpt2_byte_encoding.compare_exchange_strong(
+            expected,
+            uses_gpt2 ? 1 : 0,
+            std::memory_order_release,
+            std::memory_order_relaxed)) {
+        uses_gpt2 = tokenizer.uses_gpt2_byte_encoding.load(std::memory_order_acquire) == 1;
+    }
+    STCPP_DEBUG_LOG("[DEBUG] uses_gpt2_byte_encoding: checked=%zu, gpt2_markers=%zu, uses_gpt2=%d\n",
+                    checked, gpt2_marker_count, uses_gpt2);
     return uses_gpt2;
 }
 
@@ -983,16 +1005,17 @@ bool detokenize(
     result.clear();
     std::string accumulated;
 
-    fprintf(stderr, "[DEBUG] detokenize: %zu tokens, vocab_size=%zu\n", tokens.size(), tokenizer.vocab.size());
-    fprintf(stderr, "[DEBUG] detokenize: first 10 token IDs: ");
-    for (size_t i = 0; i < std::min(tokens.size(), (size_t)10); i++) {
-        fprintf(stderr, "%d ", tokens[i]);
+    STCPP_DEBUG_LOG("[DEBUG] detokenize: %zu tokens, vocab_size=%zu\n",
+                    tokens.size(), tokenizer.vocab.size());
+    if (stcpp_debug_enabled()) {
+        STCPP_DEBUG_LOG("[DEBUG] detokenize: first 10 token IDs: ");
+        for (size_t i = 0; i < std::min(tokens.size(), static_cast<size_t>(10)); i++) {
+            fprintf(stderr, "%d ", tokens[i]);
+        }
+        fprintf(stderr, "\n");
+        fflush(stderr);
     }
-    fprintf(stderr, "\n");
-    fflush(stderr);
 
-    // Detect encoding type for this tokenizer
-    // Note: For simplicity, we detect on every call. Could cache per tokenizer if needed.
     bool use_gpt2_decoding = uses_gpt2_byte_encoding(tokenizer);
 
     int skipped_negative = 0;
@@ -1000,8 +1023,8 @@ bool detokenize(
     int skipped_special = 0;
     int processed = 0;
 
-    fprintf(stderr, "[DEBUG] detokenize: %zu tokens, vocab_size=%zu\n", tokens.size(), tokenizer.vocab.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] detokenize: %zu tokens, vocab_size=%zu\n",
+                    tokens.size(), tokenizer.vocab.size());
 
     for (int32_t id : tokens) {
         if (id < 0) {
@@ -1010,8 +1033,8 @@ bool detokenize(
         }
         if (id >= static_cast<int32_t>(tokenizer.vocab.size())) {
             skipped_oob++;
-            fprintf(stderr, "[DEBUG] detokenize: token %d out of vocab bounds (%zu)\n",
-                    id, tokenizer.vocab.size());
+            STCPP_DEBUG_LOG("[DEBUG] detokenize: token %d out of vocab bounds (%zu)\n",
+                            id, tokenizer.vocab.size());
             continue;
         }
 
@@ -1027,8 +1050,8 @@ bool detokenize(
 
         // Debug: show first few tokens being processed
         if (processed < 10) {
-            fprintf(stderr, "[DEBUG] detokenize: id=%d -> token='%s' (len=%zu)\n",
-                    id, token.c_str(), token.size());
+            STCPP_DEBUG_LOG("[DEBUG] detokenize: id=%d -> token='%s' (len=%zu)\n",
+                            id, token.c_str(), token.size());
         }
 
         // Handle byte tokens like <0xXX> (Llama-style byte fallback)
@@ -1050,7 +1073,7 @@ bool detokenize(
 
         // Check if token is empty
         if (token.empty()) {
-            fprintf(stderr, "[DEBUG] detokenize: WARNING id=%d has empty token\n", id);
+            STCPP_DEBUG_LOG("[DEBUG] detokenize: WARNING id=%d has empty token\n", id);
             continue;
         }
 
@@ -1059,11 +1082,10 @@ bool detokenize(
         processed++;
     }
 
-    fprintf(stderr, "[DEBUG] detokenize: processed=%d, skipped_neg=%d, skipped_oob=%d, skipped_special=%d\n",
-            processed, skipped_negative, skipped_oob, skipped_special);
-    fprintf(stderr, "[DEBUG] detokenize: accumulated len=%zu, use_gpt2_decoding=%d\n",
-            accumulated.size(), use_gpt2_decoding);
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] detokenize: processed=%d, skipped_neg=%d, skipped_oob=%d, skipped_special=%d\n",
+                    processed, skipped_negative, skipped_oob, skipped_special);
+    STCPP_DEBUG_LOG("[DEBUG] detokenize: accumulated len=%zu, use_gpt2_decoding=%d\n",
+                    accumulated.size(), use_gpt2_decoding);
 
     if (use_gpt2_decoding) {
         // Convert GPT-2 byte encoding back to original text
@@ -1073,9 +1095,8 @@ bool detokenize(
         result = accumulated;
     }
 
-    fprintf(stderr, "[DEBUG] detokenize: final result len=%zu, first 50 chars='%.*s'\n",
-            result.size(), (int)std::min(result.size(), (size_t)50), result.c_str());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] detokenize: final result len=%zu, first 50 chars='%.*s'\n",
+                    result.size(), (int)std::min(result.size(), static_cast<size_t>(50)), result.c_str());
 
     return true;
 }

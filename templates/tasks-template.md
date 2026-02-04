@@ -1,6 +1,7 @@
 # タスク: [機能名]
 
 **入力**: `/specs/SPEC-[UUID8桁]/`の設計ドキュメント
+
 **前提条件**: plan.md (必須), research.md, data-model.md, contracts/
 
 ## 実行フロー (main)

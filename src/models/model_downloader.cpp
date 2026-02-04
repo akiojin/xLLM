@@ -977,15 +977,21 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
                 format = Format::Gguf;
                 selection = ggufs.front();
             } else {
-                auto it = std::find_if(ggufs.begin(), ggufs.end(), [](const std::string& name) {
-                    return ends_with_case_insensitive(name, "/model.gguf") ||
-                           ends_with_case_insensitive(name, "model.gguf");
-                });
-                if (it != ggufs.end()) {
+                std::vector<std::string> candidates;
+                for (const auto& name : ggufs) {
+                    if (ends_with_case_insensitive(name, "/model.gguf") ||
+                        ends_with_case_insensitive(name, "model.gguf")) {
+                        candidates.push_back(name);
+                    }
+                }
+                if (candidates.size() == 1) {
                     format = Format::Gguf;
-                    selection = *it;
-                } else {
+                    selection = candidates.front();
+                } else if (candidates.empty()) {
                     set_error("Multiple GGUF files found; specify filename");
+                    return "";
+                } else {
+                    set_error("Multiple GGUF files match model.gguf; specify filename");
                     return "";
                 }
             }

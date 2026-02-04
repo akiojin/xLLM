@@ -6,6 +6,7 @@
 #include "safetensors.h"
 #include "safetensors_internal.h"
 #include "ggml_model.h"
+#include "debug_log.h"
 #include <nlohmann/json.hpp>
 #include <cstring>
 #include <atomic>
@@ -615,9 +616,8 @@ stcpp_error stcpp_generate(
     char* output,
     int32_t max_output_length
 ) {
-    fprintf(stderr, "[DEBUG] stcpp_generate: entered, prompt='%.50s...', max_tokens=%d\n",
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: entered, prompt='%.50s...', max_tokens=%d\n",
             prompt ? prompt : "NULL", max_tokens);
-    fflush(stderr);
 
     // Validate input
     if (ctx == nullptr) {
@@ -636,9 +636,8 @@ stcpp_error stcpp_generate(
     stcpp::GgmlModel* model = ctx_impl->model->ggml_model.get();
     stcpp::TokenizerImpl* tokenizer = ctx_impl->model->tokenizer.get();
 
-    fprintf(stderr, "[DEBUG] stcpp_generate: contexts retrieved, model=%p, tokenizer=%p\n",
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: contexts retrieved, model=%p, tokenizer=%p\n",
             (void*)model, (void*)tokenizer);
-    fflush(stderr);
 
     if (!model || !tokenizer) {
         return STCPP_ERROR_INVALID_MODEL;
@@ -651,23 +650,20 @@ stcpp_error stcpp_generate(
     if (!stcpp::tokenize(*tokenizer, prompt, tokens, false, error)) {
         return STCPP_ERROR_INVALID_MODEL;
     }
-    fprintf(stderr, "[DEBUG] stcpp_generate: tokenized, n_tokens=%zu\n", tokens.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: tokenized, n_tokens=%zu\n", tokens.size());
 
     // DEBUG: Print prompt and tokens
-    fprintf(stderr, "[DEBUG] stcpp_generate: prompt='%.200s...'\n", prompt);
-    fprintf(stderr, "[DEBUG] stcpp_generate: n_tokens=%zu, tokens[0:10]=", tokens.size());
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: prompt='%.200s...'\n", prompt);
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: n_tokens=%zu, tokens[0:10]=", tokens.size());
     for (size_t i = 0; i < std::min(tokens.size(), (size_t)10); i++) {
         fprintf(stderr, "%d ", tokens[i]);
     }
     fprintf(stderr, "\n");
-    fflush(stderr);
 
     // Check context size
     if (static_cast<int32_t>(tokens.size()) + max_tokens > ggml_ctx->kv_size) {
-        fprintf(stderr, "[DEBUG] stcpp_generate: context overflow, tokens=%zu + max=%d > kv_size=%d\n",
+        STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: context overflow, tokens=%zu + max=%d > kv_size=%d\n",
                 tokens.size(), max_tokens, ggml_ctx->kv_size);
-        fflush(stderr);
         return STCPP_ERROR_OUT_OF_MEMORY;
     }
 
@@ -683,9 +679,8 @@ stcpp_error stcpp_generate(
     int32_t n_past = 0;
 
     // Process prompt
-    fprintf(stderr, "[DEBUG] stcpp_generate: calling forward_pass with n_tokens=%zu, n_past=%d\n",
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: calling forward_pass with n_tokens=%zu, n_past=%d\n",
             tokens.size(), n_past);
-    fflush(stderr);
     if (!stcpp::forward_pass(ggml_ctx, tokens.data(), static_cast<int32_t>(tokens.size()),
                              n_past, logits.data(), error)) {
         if (ggml_ctx->cancel_flag.load(std::memory_order_acquire)) {
@@ -696,21 +691,19 @@ stcpp_error stcpp_generate(
     n_past = static_cast<int32_t>(tokens.size());
 
     // CRITICAL DEBUG: Check logits immediately after forward_pass returns
-    fprintf(stderr, "[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, logits ptr=%p\n", (void*)logits.data());
-    fprintf(stderr, "[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, logits[0:5]=%.4f %.4f %.4f %.4f %.4f\n",
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, logits ptr=%p\n", (void*)logits.data());
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, logits[0:5]=%.4f %.4f %.4f %.4f %.4f\n",
             logits[0], logits[1], logits[2], logits[3], logits[4]);
-    fprintf(stderr, "[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, logits[198]=%.4f\n", logits[198]);
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, logits[198]=%.4f\n", logits[198]);
     // Find argmax
     auto caller_max_it = std::max_element(logits.data(), logits.data() + model->hparams.n_vocab);
     int32_t caller_argmax = static_cast<int32_t>(caller_max_it - logits.data());
-    fprintf(stderr, "[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, argmax=%d, max_val=%.4f\n",
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: RIGHT AFTER forward_pass, argmax=%d, max_val=%.4f\n",
             caller_argmax, *caller_max_it);
-    fflush(stderr);
 
     // Generate tokens
-    fprintf(stderr, "[DEBUG] stcpp_generate: starting generation loop, max_tokens=%d, eos_id=%d\n",
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: starting generation loop, max_tokens=%d, eos_id=%d\n",
             max_tokens, tokenizer->eos_token_id);
-    fflush(stderr);
     for (int32_t i = 0; i < max_tokens; ++i) {
         // Check cancel
         if (ggml_ctx->cancel_flag.load(std::memory_order_acquire)) {
@@ -721,11 +714,10 @@ stcpp_error stcpp_generate(
         if (i == 0) {
             auto max_it = std::max_element(logits.data(), logits.data() + model->hparams.n_vocab);
             int32_t argmax = static_cast<int32_t>(max_it - logits.data());
-            fprintf(stderr, "[DEBUG] before sample_token: n_vocab=%d, argmax=%d, logits[argmax]=%.4f\n",
+            STCPP_DEBUG_LOG("[DEBUG] before sample_token: n_vocab=%d, argmax=%d, logits[argmax]=%.4f\n",
                     model->hparams.n_vocab, argmax, *max_it);
-            fprintf(stderr, "[DEBUG] before sample_token: logits[198]=%.4f, logits[65161]=%.4f\n",
+            STCPP_DEBUG_LOG("[DEBUG] before sample_token: logits[198]=%.4f, logits[65161]=%.4f\n",
                     logits[198], logits[65161]);
-            fflush(stderr);
         }
 
         // Sample next token (with repeat penalty based on previously generated tokens)
@@ -738,17 +730,15 @@ stcpp_error stcpp_generate(
             std::string decoded;
             std::string dec_err;
             if (stcpp::detokenize(*tokenizer, single_tok, decoded, dec_err)) {
-                fprintf(stderr, "[DEBUG] stcpp_generate[%d]: sampled token=%d -> '%s'\n", i, next_token, decoded.c_str());
+                STCPP_DEBUG_LOG("[DEBUG] stcpp_generate[%d]: sampled token=%d -> '%s'\n", i, next_token, decoded.c_str());
             } else {
-                fprintf(stderr, "[DEBUG] stcpp_generate[%d]: sampled token=%d -> [decode failed]\n", i, next_token);
+                STCPP_DEBUG_LOG("[DEBUG] stcpp_generate[%d]: sampled token=%d -> [decode failed]\n", i, next_token);
             }
-            fflush(stderr);
         }
 
         // Check for stop tokens (EOS)
         if (next_token == tokenizer->eos_token_id) {
-            fprintf(stderr, "[DEBUG] stcpp_generate: EOS detected, breaking\n");
-            fflush(stderr);
+            STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: EOS detected, breaking\n");
             break;
         }
 
@@ -763,17 +753,14 @@ stcpp_error stcpp_generate(
     }
 
     // Detokenize
-    fprintf(stderr, "[DEBUG] stcpp_generate: detokenizing %zu tokens\n", generated_tokens.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: detokenizing %zu tokens\n", generated_tokens.size());
     std::string result;
     if (!stcpp::detokenize(*tokenizer, generated_tokens, result, error)) {
-        fprintf(stderr, "[DEBUG] stcpp_generate: detokenization failed: %s\n", error.c_str());
-        fflush(stderr);
+        STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: detokenization failed: %s\n", error.c_str());
         return STCPP_ERROR_UNKNOWN;
     }
 
-    fprintf(stderr, "[DEBUG] stcpp_generate: result='%s', len=%zu\n", result.c_str(), result.size());
-    fflush(stderr);
+    STCPP_DEBUG_LOG("[DEBUG] stcpp_generate: result='%s', len=%zu\n", result.c_str(), result.size());
 
     // Copy to output
     int32_t len = std::min(static_cast<int32_t>(result.size()), max_output_length - 1);
