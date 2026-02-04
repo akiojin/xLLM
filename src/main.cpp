@@ -342,10 +342,10 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         // Configure on-demand model loading settings from environment variables
         if (const char* idle_timeout_env = getenvWithFallback("XLLM_MODEL_IDLE_TIMEOUT",
                                                               "LLM_MODEL_IDLE_TIMEOUT")) {
-            int timeout_secs = std::atoi(idle_timeout_env);
-            if (timeout_secs > 0) {
-                llama_manager.setIdleTimeout(std::chrono::seconds(timeout_secs));
-                spdlog::info("Model idle timeout set to {} seconds", timeout_secs);
+            int timeout_ms = std::atoi(idle_timeout_env);
+            if (timeout_ms > 0) {
+                llama_manager.setIdleTimeout(std::chrono::milliseconds(timeout_ms));
+                spdlog::info("Model idle timeout set to {} ms", timeout_ms);
             }
         }
         if (const char* max_models_env = getenvWithFallback("XLLM_MAX_LOADED_MODELS",

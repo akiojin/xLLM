@@ -178,8 +178,7 @@ std::pair<NodeConfig, std::string> loadNodeConfigWithLog() {
         log << "env:MODELS_DIR=" << *v << " ";
         used_env = true;
     }
-    if (auto v = getEnvWithFallback("XLLM_PORT", "XLLM_PORT")) {
-        // XLLM_PORT is already the correct name
+    if (auto v = getEnvWithFallback("XLLM_PORT", "LLM_PORT")) {
         try {
             cfg.node_port = std::stoi(*v);
             log << "env:NODE_PORT=" << cfg.node_port << " ";
