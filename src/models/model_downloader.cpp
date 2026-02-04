@@ -1285,6 +1285,7 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
 
             size_t downloaded = current_offset;
             size_t total = current_offset;
+            const size_t base_offset = current_offset;
             std::optional<StreamingSha256> streamer;
             if (!expected_sha256.empty()) streamer.emplace();
 
@@ -1301,9 +1302,10 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
                 [&](const httplib::Response& res) {
                     if (res.has_header("Content-Length")) {
                         try {
-                            total = offset + static_cast<size_t>(std::stoull(res.get_header_value("Content-Length")));
+                            total = base_offset +
+                                static_cast<size_t>(std::stoull(res.get_header_value("Content-Length")));
                         } catch (...) {
-                            total = offset;
+                            total = base_offset;
                         }
                     }
                     if (res.status == 304) {

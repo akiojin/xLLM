@@ -107,13 +107,12 @@ std::vector<fs::path> list_gguf_files(const fs::path& model_dir) {
 std::optional<fs::path> resolve_bin_primary_in_dir(const fs::path& model_dir) {
     std::vector<fs::path> bins;
     std::error_code ec;
-    for (const auto& entry : fs::recursive_directory_iterator(model_dir, ec)) {
+    for (const auto& entry : fs::directory_iterator(model_dir, ec)) {
         if (ec) break;
         if (!is_regular_or_symlink_file(entry.path())) continue;
         const auto filename = entry.path().filename().string();
         if (!is_bin_filename(filename)) continue;
         if (is_metal_bin_filename(filename)) continue;
-        if (entry.path().parent_path().filename() == "metal") continue;
         if (!is_valid_file(entry.path())) continue;
         bins.push_back(entry.path());
     }
