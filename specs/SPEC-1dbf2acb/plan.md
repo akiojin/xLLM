@@ -131,8 +131,8 @@ xLLMの全機能を統合的に実装するための計画。
 ### Phase 8: HTTP機能強化
 
 1. **CORS対応**
-   - config.yamlで設定可能
-   - allowed_origins等
+   - 環境変数で設定可能
+   - `XLLM_CORS_ALLOW_ORIGIN` など
 
 2. **圧縮・トレーシング**
    - Gzip圧縮

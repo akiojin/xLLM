@@ -78,6 +78,16 @@ bool is_gguf_filename(const std::string& filename) {
     return ends_with_case_insensitive(filename, ".gguf");
 }
 
+bool is_bin_filename(const std::string& filename) {
+    return ends_with_case_insensitive(filename, ".bin");
+}
+
+bool is_metal_bin_filename(const std::string& filename) {
+    return ends_with_case_insensitive(filename, "model.metal.bin") ||
+           ends_with_case_insensitive(filename, "model.dml.bin") ||
+           ends_with_case_insensitive(filename, "model.directml.bin");
+}
+
 std::vector<fs::path> list_gguf_files(const fs::path& model_dir) {
     std::vector<fs::path> out;
     std::error_code ec;
@@ -92,6 +102,24 @@ std::vector<fs::path> list_gguf_files(const fs::path& model_dir) {
     }
     std::sort(out.begin(), out.end());
     return out;
+}
+
+std::optional<fs::path> resolve_bin_primary_in_dir(const fs::path& model_dir) {
+    std::vector<fs::path> bins;
+    std::error_code ec;
+    for (const auto& entry : fs::recursive_directory_iterator(model_dir, ec)) {
+        if (ec) break;
+        if (!is_regular_or_symlink_file(entry.path())) continue;
+        const auto filename = entry.path().filename().string();
+        if (!is_bin_filename(filename)) continue;
+        if (is_metal_bin_filename(filename)) continue;
+        if (entry.path().parent_path().filename() == "metal") continue;
+        if (!is_valid_file(entry.path())) continue;
+        bins.push_back(entry.path());
+    }
+    if (bins.empty()) return std::nullopt;
+    std::sort(bins.begin(), bins.end());
+    return bins.front();
 }
 
 std::vector<std::string> build_gguf_prefixes(const std::string& model_name) {
@@ -267,7 +295,7 @@ std::vector<std::string> load_manifest_formats(const fs::path& model_dir) {
             std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
                 return static_cast<char>(std::tolower(c));
             });
-            if (value == "gguf" || value == "safetensors") return value;
+            if (value == "gguf" || value == "safetensors" || value == "bin") return value;
             return std::nullopt;
         };
 
@@ -719,6 +747,17 @@ std::vector<ModelInfo> ModelStorage::listAvailable() const {
                         resolved = true;
                         break;
                     }
+                } else if (fmt == "bin") {
+                    if (auto primary = resolve_bin_primary_in_dir(model_dir)) {
+                        ModelInfo info;
+                        info.name = dirNameToModel(relative.string());
+                        info.format = "bin";
+                        info.primary_path = primary->string();
+                        info.valid = true;
+                        out.push_back(std::move(info));
+                        resolved = true;
+                        break;
+                    }
                 }
             }
             if (resolved) continue;
@@ -739,6 +778,16 @@ std::vector<ModelInfo> ModelStorage::listAvailable() const {
             ModelInfo info;
             info.name = dirNameToModel(relative.string());
             info.format = "safetensors";
+            info.primary_path = primary->string();
+            info.valid = true;
+            out.push_back(std::move(info));
+            continue;
+        }
+
+        if (auto primary = resolve_bin_primary_in_dir(model_dir)) {
+            ModelInfo info;
+            info.name = dirNameToModel(relative.string());
+            info.format = "bin";
             info.primary_path = primary->string();
             info.valid = true;
             out.push_back(std::move(info));
@@ -781,6 +830,13 @@ std::vector<ModelDescriptor> ModelStorage::listAvailableDescriptors() const {
                 desc.metadata = std::move(*meta);
             }
             apply_manifest_quantization(desc, fs::path(desc.model_dir));
+            out.push_back(std::move(desc));
+            continue;
+        }
+
+        if (info.format == "bin") {
+            desc.runtime = "whisper_cpp";
+            desc.capabilities = capabilities_for_runtime(desc.runtime);
             out.push_back(std::move(desc));
             continue;
         }
@@ -879,6 +935,17 @@ std::optional<ModelDescriptor> ModelStorage::resolveDescriptor(const std::string
                 if (auto primary = resolve_safetensors_primary_in_dir(model_dir)) {
                     return make_safetensors_descriptor(*primary);
                 }
+            } else if (fmt == "bin") {
+                if (auto primary = resolve_bin_primary_in_dir(model_dir)) {
+                    ModelDescriptor desc;
+                    desc.name = model_name;
+                    desc.runtime = "whisper_cpp";
+                    desc.format = "bin";
+                    desc.primary_path = primary->string();
+                    desc.model_dir = model_dir.string();
+                    desc.capabilities = capabilities_for_runtime(desc.runtime);
+                    return desc;
+                }
             }
         }
         return std::nullopt;
@@ -907,6 +974,19 @@ std::optional<ModelDescriptor> ModelStorage::resolveDescriptor(const std::string
     if (!parsed->quantization.has_value()) {
         if (auto primary = resolve_safetensors_primary_in_dir(model_dir)) {
             return make_safetensors_descriptor(*primary);
+        }
+    }
+
+    if (!parsed->quantization.has_value()) {
+        if (auto primary = resolve_bin_primary_in_dir(model_dir)) {
+            ModelDescriptor desc;
+            desc.name = model_name;
+            desc.runtime = "whisper_cpp";
+            desc.format = "bin";
+            desc.primary_path = primary->string();
+            desc.model_dir = model_dir.string();
+            desc.capabilities = capabilities_for_runtime(desc.runtime);
+            return desc;
         }
     }
 
@@ -941,6 +1021,8 @@ bool ModelStorage::validateModel(const std::string& model_name) const {
                 if (resolve_gguf_path(model_dir, parsed->base, "").has_value()) return true;
             } else if (fmt == "safetensors") {
                 if (resolve_safetensors_primary_in_dir(model_dir).has_value()) return true;
+            } else if (fmt == "bin") {
+                if (resolve_bin_primary_in_dir(model_dir).has_value()) return true;
             }
         }
         return false;
@@ -950,7 +1032,9 @@ bool ModelStorage::validateModel(const std::string& model_name) const {
     }
     if (resolve_gguf_path(model_dir, parsed->base, parsed->quantization.value_or("")).has_value()) return true;
     if (!parsed->quantization.has_value()) {
-        return resolve_safetensors_primary_in_dir(model_dir).has_value();
+        if (resolve_safetensors_primary_in_dir(model_dir).has_value()) return true;
+        if (resolve_bin_primary_in_dir(model_dir).has_value()) return true;
+        return false;
     }
     return false;
 }

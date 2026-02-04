@@ -58,6 +58,17 @@ std::optional<std::string> getEnvWithFallback(const char* new_name, const char* 
     return std::nullopt;
 }
 
+std::optional<bool> parseBoolEnv(const std::string& value) {
+    std::string lower;
+    lower.reserve(value.size());
+    for (char c : value) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower == "1" || lower == "true" || lower == "yes" || lower == "on") return true;
+    if (lower == "0" || lower == "false" || lower == "no" || lower == "off") return false;
+    return std::nullopt;
+}
+
 }  // namespace
 
 DownloadConfig loadDownloadConfig() {
@@ -187,6 +198,29 @@ std::pair<NodeConfig, std::string> loadNodeConfigWithLog() {
             log << "env:ORIGIN_ALLOWLIST=" << *v << " ";
             used_env = true;
         }
+    }
+
+    if (auto v = getEnvWithFallback("XLLM_CORS_ENABLED", "LLM_CORS_ENABLED")) {
+        if (auto parsed = parseBoolEnv(*v)) {
+            cfg.cors_enabled = *parsed;
+            log << "env:CORS_ENABLED=" << (*parsed ? "true" : "false") << " ";
+            used_env = true;
+        }
+    }
+    if (auto v = getEnvWithFallback("XLLM_CORS_ALLOW_ORIGIN", "LLM_CORS_ALLOW_ORIGIN")) {
+        cfg.cors_allow_origin = *v;
+        log << "env:CORS_ALLOW_ORIGIN=" << *v << " ";
+        used_env = true;
+    }
+    if (auto v = getEnvWithFallback("XLLM_CORS_ALLOW_METHODS", "LLM_CORS_ALLOW_METHODS")) {
+        cfg.cors_allow_methods = *v;
+        log << "env:CORS_ALLOW_METHODS=" << *v << " ";
+        used_env = true;
+    }
+    if (auto v = getEnvWithFallback("XLLM_CORS_ALLOW_HEADERS", "LLM_CORS_ALLOW_HEADERS")) {
+        cfg.cors_allow_headers = *v;
+        log << "env:CORS_ALLOW_HEADERS=" << *v << " ";
+        used_env = true;
     }
 
     if (auto v = getEnvValue("LLM_DEFAULT_EMBEDDING_MODEL")) {

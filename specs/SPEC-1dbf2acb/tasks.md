@@ -1,3 +1,5 @@
+@claude
+
 # xLLM 統合仕様 - タスク一覧
 
 ## Setup

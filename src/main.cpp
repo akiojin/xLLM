@@ -45,16 +45,52 @@ namespace {
 
 std::atomic<int> g_last_signal{0};
 
+const char* getenvWithFallback(const char* primary, const char* fallback) {
+    if (const char* v = std::getenv(primary)) {
+        if (*v) return v;
+    }
+    if (const char* v = std::getenv(fallback)) {
+        if (*v) {
+            spdlog::warn("Environment variable '{}' is deprecated, use '{}' instead", fallback, primary);
+            return v;
+        }
+    }
+    return nullptr;
+}
+
 void writeStderr(const char* msg) {
     if (!msg) return;
     ::write(STDERR_FILENO, msg, std::strlen(msg));
 }
 
+void writeLiteral(const char* msg, size_t len) {
+    if (!msg || len == 0) return;
+    ::write(STDERR_FILENO, msg, len);
+}
+
 void logSignal(int signal) {
-    char buf[128];
-    int len = std::snprintf(buf, sizeof(buf), "xllm: received signal %d\n", signal);
-    if (len > 0) {
-        ::write(STDERR_FILENO, buf, static_cast<size_t>(len));
+    switch (signal) {
+        case SIGINT:
+            writeLiteral("xllm: received SIGINT\n", sizeof("xllm: received SIGINT\n") - 1);
+            break;
+        case SIGTERM:
+            writeLiteral("xllm: received SIGTERM\n", sizeof("xllm: received SIGTERM\n") - 1);
+            break;
+        case SIGHUP:
+            writeLiteral("xllm: received SIGHUP\n", sizeof("xllm: received SIGHUP\n") - 1);
+            break;
+        case SIGABRT:
+            writeLiteral("xllm: received SIGABRT\n", sizeof("xllm: received SIGABRT\n") - 1);
+            break;
+        case SIGSEGV:
+            writeLiteral("xllm: received SIGSEGV\n", sizeof("xllm: received SIGSEGV\n") - 1);
+            break;
+        case SIGBUS:
+            writeLiteral("xllm: received SIGBUS\n", sizeof("xllm: received SIGBUS\n") - 1);
+            break;
+        default:
+            writeLiteral("xllm: received signal\n", sizeof("xllm: received signal\n") - 1);
+            break;
     }
 }
 
@@ -304,21 +340,24 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         fflush(stderr);
 
         // Configure on-demand model loading settings from environment variables
-        if (const char* idle_timeout_env = std::getenv("LLM_MODEL_IDLE_TIMEOUT")) {
+        if (const char* idle_timeout_env = getenvWithFallback("XLLM_MODEL_IDLE_TIMEOUT",
+                                                              "LLM_MODEL_IDLE_TIMEOUT")) {
             int timeout_secs = std::atoi(idle_timeout_env);
             if (timeout_secs > 0) {
                 llama_manager.setIdleTimeout(std::chrono::seconds(timeout_secs));
                 spdlog::info("Model idle timeout set to {} seconds", timeout_secs);
             }
         }
-        if (const char* max_models_env = std::getenv("LLM_MAX_LOADED_MODELS")) {
+        if (const char* max_models_env = getenvWithFallback("XLLM_MAX_LOADED_MODELS",
+                                                            "LLM_MAX_LOADED_MODELS")) {
             int max_models = std::atoi(max_models_env);
             if (max_models > 0) {
                 llama_manager.setMaxLoadedModels(static_cast<size_t>(max_models));
                 spdlog::info("Max loaded models set to {}", max_models);
             }
         }
-        if (const char* max_memory_env = std::getenv("LLM_MAX_MEMORY_BYTES")) {
+        if (const char* max_memory_env = getenvWithFallback("XLLM_MAX_MEMORY_BYTES",
+                                                            "LLM_MAX_MEMORY_BYTES")) {
             long long max_memory = std::atoll(max_memory_env);
             if (max_memory > 0) {
                 llama_manager.setMaxMemoryBytes(static_cast<size_t>(max_memory));
@@ -1052,7 +1091,11 @@ int main(int argc, char* argv[]) {
             char buf[128];
             int len = std::snprintf(buf, sizeof(buf), "xllm: exiting after signal %d\n", sig);
             if (len > 0) {
-                ::write(STDERR_FILENO, buf, static_cast<size_t>(len));
+                size_t n = static_cast<size_t>(len);
+                if (n > sizeof(buf) - 1) {
+                    n = sizeof(buf) - 1;
+                }
+                ::write(STDERR_FILENO, buf, n);
             }
         }
     });

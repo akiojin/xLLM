@@ -1,3 +1,5 @@
+@claude
+
 # Reference Models (Source of Truth)
 
 This file defines the concrete model IDs to be used for mandatory verification/tests

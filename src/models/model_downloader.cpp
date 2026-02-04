@@ -1115,6 +1115,12 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
         }
     } else if (format && *format == Format::Bin) {
         manifest["format"] = "bin";
+        if (has_sibling(siblings, "config.json")) {
+            push_file("config.json", build_hf_resolve_url(base_url, model_id, "config.json"));
+        }
+        if (has_sibling(siblings, "tokenizer.json")) {
+            push_file("tokenizer.json", build_hf_resolve_url(base_url, model_id, "tokenizer.json"));
+        }
         push_file(selection, build_hf_resolve_url(base_url, model_id, selection));
     }
 
@@ -1122,10 +1128,12 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
         return "";
     }
 
-    if (auto metal = find_metal_artifact(siblings)) {
-        push_file("model.metal.bin", build_hf_resolve_url(base_url, model_id, *metal));
-        if (!ok) {
-            return "";
+    if (format && *format != Format::Bin) {
+        if (auto metal = find_metal_artifact(siblings)) {
+            push_file("model.metal.bin", build_hf_resolve_url(base_url, model_id, *metal));
+            if (!ok) {
+                return "";
+            }
         }
     }
 
