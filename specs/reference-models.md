@@ -29,6 +29,7 @@ Selection constraints (keep in sync with user requirements):
 | gpt-oss | ~120B | openai/gpt-oss-120b | Official safetensors (MoE + MXFP4) |
 | nemotron3 | ~30B | nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 | Official safetensors (MoE + Mamba-Transformer) |
 | qwen3-coder | ~30B | Qwen/Qwen3-Coder-30B-A3B-Instruct | Qwen3-Coder (safetensors) |
+| qwen3-coder-next | ~80B | Qwen/Qwen3-Coder-Next | Qwen3-Coder-Next (safetensors, official) |
 | qwen3-coder | large | Qwen/Qwen3-Coder-480B-A35B-Instruct | Qwen3-Coder largest tier (no ~120B-class model published) |
 | glm-4.7 | ~30B | zai-org/GLM-4.7-Flash | GLM-4.7-Flash (30B-A3B MoE) |
 | glm-4.7 | large | zai-org/GLM-4.7 | GLM-4.7 main model (largest tier) |
