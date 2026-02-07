@@ -416,7 +416,7 @@ TEST(ModelDownloaderTest, AllowsBinModelsWhenEnabled) {
 
 TEST(ModelDownloaderTest, UsesHfMetadataCacheWhenNotModified) {
     HfApiCacheServer server;
-    const int port = 18122;
+    const int port = 18126;
     server.start(port);
 
     const char* old_base = std::getenv("HF_BASE_URL");
