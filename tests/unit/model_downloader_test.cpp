@@ -92,6 +92,7 @@ public:
     std::thread thread;
 };
 
+namespace {
 class EnvGuard {
 public:
     EnvGuard(const std::string& key, const std::string& value) : key_(key) {
@@ -128,6 +129,7 @@ private:
     bool had_prev_{false};
     std::string prev_value_;
 };
+} // namespace
 
 class HfApiMinimalServer {
 public:

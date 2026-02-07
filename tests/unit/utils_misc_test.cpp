@@ -16,6 +16,7 @@
 using namespace xllm;
 namespace fs = std::filesystem;
 
+namespace {
 class EnvGuard {
 public:
     explicit EnvGuard(std::vector<std::string> keys) : keys_(std::move(keys)) {
@@ -40,6 +41,7 @@ private:
     std::vector<std::string> keys_;
     std::unordered_map<std::string, std::string> saved_;
 };
+} // namespace
 
 class TempDirGuard {
 public:
