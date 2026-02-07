@@ -55,7 +55,6 @@ LLMLB_URL=http://127.0.0.1:32768 ./build/xllm serve
 | `XLLM_BIND_ADDRESS` | `0.0.0.0` | バインドアドレス |
 | `XLLM_MODELS_DIR` | `~/.models` | モデル保存先 |
 | `XLLM_ORIGIN_ALLOWLIST` | `huggingface.co/*,cdn-lfs.huggingface.co/*` | 直接ダウンロード許可リスト |
-| `XLLM_CONFIG` | `~/.config.json` | 設定ファイル |
 | `XLLM_LOG_LEVEL` | `info` | ログレベル |
 | `XLLM_LOG_DIR` | `~/.logs` | ログディレクトリ |
 | `XLLM_LOG_RETENTION_DAYS` | `7` | ログ保持日数 |

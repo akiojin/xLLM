@@ -326,6 +326,22 @@ bool is_safetensors_filename(const std::string& filename) {
     return lower;
 }
 
+bool is_bin_filename(const std::string& filename) {
+    return ends_with_case_insensitive(filename, ".bin");
+}
+
+bool allow_non_llm_safetensors() {
+    const char* env = std::getenv("XLLM_ALLOW_SAFETENSORS_NO_METADATA");
+    if (!env || !*env) return false;
+    return std::string(env) == "1" || std::string(env) == "true";
+}
+
+bool allow_bin_models() {
+    const char* env = std::getenv("XLLM_ALLOW_BIN_MODELS");
+    if (!env || !*env) return false;
+    return std::string(env) == "1" || std::string(env) == "true";
+}
+
 std::optional<std::string> infer_safetensors_index_from_shard(const std::string& filename) {
     if (is_safetensors_index_filename(filename)) {
         return std::nullopt;
@@ -374,6 +390,9 @@ bool has_sibling(const std::vector<std::string>& siblings, const std::string& fi
 }
 
 bool require_safetensors_metadata_files(const std::vector<std::string>& siblings) {
+    if (allow_non_llm_safetensors()) {
+        return true;
+    }
     return has_sibling(siblings, "config.json") && has_sibling(siblings, "tokenizer.json");
 }
 
@@ -908,7 +927,7 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
     }
 
     std::string selection;
-    enum class Format { Gguf, Safetensors };
+    enum class Format { Gguf, Safetensors, Bin };
     std::optional<Format> format;
 
     if (!filename_hint.empty()) {
@@ -921,7 +940,8 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             selection = filename_hint;
         } else if (is_safetensors_filename(filename_hint)) {
             if (!require_safetensors_metadata_files(siblings)) {
-                set_error("config.json and tokenizer.json are required for safetensors models");
+                set_error("config.json and tokenizer.json are required for safetensors models "
+                          "(set XLLM_ALLOW_SAFETENSORS_NO_METADATA=1 to override)");
                 return "";
             }
             std::string err;
@@ -932,16 +952,25 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             }
             format = Format::Safetensors;
             selection = *resolved;
+        } else if (is_bin_filename(filename_hint)) {
+            if (!allow_bin_models()) {
+                set_error("bin models are disabled (set XLLM_ALLOW_BIN_MODELS=1 to allow)");
+                return "";
+            }
+            format = Format::Bin;
+            selection = filename_hint;
         } else {
-            set_error("filename must be a .gguf or .safetensors file");
+            set_error("filename must be a .gguf, .safetensors, or .bin file");
             return "";
         }
     } else {
         std::vector<std::string> ggufs;
         std::vector<std::string> safetensors;
+        std::vector<std::string> bins;
         for (const auto& name : siblings) {
             if (is_gguf_filename(name)) ggufs.push_back(name);
             if (is_safetensors_filename(name)) safetensors.push_back(name);
+            if (is_bin_filename(name)) bins.push_back(name);
         }
         if (!ggufs.empty()) {
             if (ggufs.size() == 1) {
@@ -968,7 +997,8 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             }
         } else if (!safetensors.empty()) {
             if (!require_safetensors_metadata_files(siblings)) {
-                set_error("config.json and tokenizer.json are required for safetensors models");
+                set_error("config.json and tokenizer.json are required for safetensors models "
+                          "(set XLLM_ALLOW_SAFETENSORS_NO_METADATA=1 to override)");
                 return "";
             }
             std::string err;
@@ -979,8 +1009,20 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
             }
             format = Format::Safetensors;
             selection = *resolved;
+        } else if (!bins.empty()) {
+            if (!allow_bin_models()) {
+                set_error("bin models are disabled (set XLLM_ALLOW_BIN_MODELS=1 to allow)");
+                return "";
+            }
+            if (bins.size() == 1) {
+                format = Format::Bin;
+                selection = bins.front();
+            } else {
+                set_error("Multiple .bin files found; specify filename");
+                return "";
+            }
         } else {
-            set_error("No supported model artifacts found (safetensors/gguf)");
+            set_error("No supported model artifacts found (safetensors/gguf/bin)");
             return "";
         }
     }
@@ -1028,7 +1070,14 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
         }
     } else if (format && *format == Format::Safetensors) {
         manifest["format"] = "safetensors";
-        std::vector<std::string> names = {"config.json", "tokenizer.json", selection};
+        std::vector<std::string> names;
+        if (has_sibling(siblings, "config.json")) {
+            names.push_back("config.json");
+        }
+        if (has_sibling(siblings, "tokenizer.json")) {
+            names.push_back("tokenizer.json");
+        }
+        names.push_back(selection);
         if (is_safetensors_index_filename(selection)) {
             const std::string index_path = selection;
             const std::string resolve_path = build_hf_resolve_path(base, model_id, index_path);
@@ -1064,16 +1113,27 @@ std::string ModelDownloader::fetchHfManifest(const std::string& model_id, const 
         for (const auto& name : names) {
             push_file(name, build_hf_resolve_url(base_url, model_id, name));
         }
+    } else if (format && *format == Format::Bin) {
+        manifest["format"] = "bin";
+        if (has_sibling(siblings, "config.json")) {
+            push_file("config.json", build_hf_resolve_url(base_url, model_id, "config.json"));
+        }
+        if (has_sibling(siblings, "tokenizer.json")) {
+            push_file("tokenizer.json", build_hf_resolve_url(base_url, model_id, "tokenizer.json"));
+        }
+        push_file(selection, build_hf_resolve_url(base_url, model_id, selection));
     }
 
     if (!ok) {
         return "";
     }
 
-    if (auto metal = find_metal_artifact(siblings)) {
-        push_file("model.metal.bin", build_hf_resolve_url(base_url, model_id, *metal));
-        if (!ok) {
-            return "";
+    if (format && *format != Format::Bin) {
+        if (auto metal = find_metal_artifact(siblings)) {
+            push_file("model.metal.bin", build_hf_resolve_url(base_url, model_id, *metal));
+            if (!ok) {
+                return "";
+            }
         }
     }
 
@@ -1211,11 +1271,21 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
 
     auto download_once = [&](size_t offset, bool use_range) -> bool {
         for (int attempt = 0; attempt <= max_retries_; ++attempt) {
-            std::ofstream ofs(out_path, std::ios::binary | (offset > 0 && use_range ? std::ios::app : std::ios::trunc));
+            size_t current_offset = offset;
+            if (use_range && offset > 0) {
+                std::error_code ec;
+                auto size = static_cast<size_t>(fs::file_size(out_path, ec));
+                if (!ec && size > 0) {
+                    current_offset = size;
+                }
+            }
+
+            std::ofstream ofs(out_path, std::ios::binary | (current_offset > 0 && use_range ? std::ios::app : std::ios::trunc));
             if (!ofs.is_open()) return false;
 
-            size_t downloaded = offset;
-            size_t total = offset;
+            size_t downloaded = current_offset;
+            size_t total = current_offset;
+            const size_t base_offset = current_offset;
             std::optional<StreamingSha256> streamer;
             if (!expected_sha256.empty()) streamer.emplace();
 
@@ -1223,8 +1293,8 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
 
             httplib::Headers headers;
             apply_auth(headers);
-            if (use_range && offset > 0) {
-                headers.emplace("Range", "bytes=" + std::to_string(offset) + "-");
+            if (use_range && current_offset > 0) {
+                headers.emplace("Range", "bytes=" + std::to_string(current_offset) + "-");
             }
             auto result = client->Get(
                 url.path,
@@ -1232,9 +1302,10 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
                 [&](const httplib::Response& res) {
                     if (res.has_header("Content-Length")) {
                         try {
-                            total = offset + static_cast<size_t>(std::stoull(res.get_header_value("Content-Length")));
+                            total = base_offset +
+                                static_cast<size_t>(std::stoull(res.get_header_value("Content-Length")));
                         } catch (...) {
-                            total = offset;
+                            total = base_offset;
                         }
                     }
                     if (res.status == 304) {
@@ -1266,8 +1337,16 @@ std::string ModelDownloader::downloadBlob(const std::string& blob_url, const std
 
             ofs.flush();
 
+            if (!result) {
+                spdlog::warn("ModelDownloader: download failed (no response) url='{}{}'",
+                             url.scheme + "://" + url.host, url.path);
+            } else if (result->status != 304 && (result->status < 200 || result->status >= 300)) {
+                spdlog::warn("ModelDownloader: download failed status={} url='{}{}'",
+                             result->status, url.scheme + "://" + url.host, url.path);
+            }
+
             if (result && (result->status == 304 || (result->status >= 200 && result->status < 300))) {
-                if (cb && total == offset) {
+                if (cb && total == current_offset) {
                     cb(downloaded, downloaded);
                 }
                 if (streamer && !expected_sha256.empty() && result->status != 304) {

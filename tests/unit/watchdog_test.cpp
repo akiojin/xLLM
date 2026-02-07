@@ -88,13 +88,8 @@ TEST_F(TokenWatchdogTest, KickResetsTimeout) {
 
     bool timeout_called = false;
     {
-#ifdef _WIN32
         const auto timeout = std::chrono::milliseconds(200);
         const auto kick_interval = std::chrono::milliseconds(50);
-#else
-        const auto timeout = std::chrono::milliseconds(30);
-        const auto kick_interval = std::chrono::milliseconds(20);
-#endif
         TokenWatchdog watchdog(timeout, [&timeout_called]() {
             timeout_called = true;
         });

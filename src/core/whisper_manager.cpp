@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <utility>
 
 namespace xllm {
 
@@ -51,6 +52,14 @@ bool WhisperManager::loadModel(const std::string& model_path) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::string canonical_path = canonicalizePath(model_path);
+
+#ifdef XLLM_TESTING
+    if (transcribe_hook_) {
+        // テスト時はモデル実体なしでロード成功扱いにする
+        updateAccessTime(canonical_path);
+        return true;
+    }
+#endif
 
     if (loaded_models_.find(canonical_path) != loaded_models_.end()) {
         spdlog::debug("Whisper model already loaded: {}", canonical_path);
@@ -138,6 +147,18 @@ TranscriptionResult WhisperManager::transcribe(
     const std::vector<float>& audio_data,
     int sample_rate,
     const TranscriptionParams& params) {
+
+#ifdef XLLM_TESTING
+    std::function<TranscriptionResult(
+        const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> hook;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        hook = transcribe_hook_;
+    }
+    if (hook) {
+        return hook(model_path, audio_data, sample_rate, params);
+    }
+#endif
 
     TranscriptionResult result;
 
@@ -333,6 +354,15 @@ WhisperManager::getLastAccessTime(const std::string& model_path) const {
     return std::nullopt;
 }
 
+#ifdef XLLM_TESTING
+void WhisperManager::setTranscribeHookForTest(
+    std::function<TranscriptionResult(
+        const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> hook) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    transcribe_hook_ = std::move(hook);
+}
+#endif
+
 }  // namespace xllm
 
 #else
@@ -345,15 +375,41 @@ WhisperManager::WhisperManager(std::string models_dir) : models_dir_(std::move(m
 
 WhisperManager::~WhisperManager() = default;
 
-bool WhisperManager::loadModel(const std::string&) { return false; }
+bool WhisperManager::loadModel(const std::string& model_path) {
+#ifdef XLLM_TESTING
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (transcribe_hook_) {
+            return true;
+        }
+    }
+#endif
+    (void)model_path;
+    return false;
+}
 bool WhisperManager::isLoaded(const std::string&) const { return false; }
 whisper_context* WhisperManager::getContext(const std::string&) const { return nullptr; }
 
 TranscriptionResult WhisperManager::transcribe(
-    const std::string&,
-    const std::vector<float>&,
-    int,
-    const TranscriptionParams&) {
+    const std::string& model_path,
+    const std::vector<float>& audio_data,
+    int sample_rate,
+    const TranscriptionParams& params) {
+#ifdef XLLM_TESTING
+    std::function<TranscriptionResult(
+        const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> hook;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        hook = transcribe_hook_;
+    }
+    if (hook) {
+        return hook(model_path, audio_data, sample_rate, params);
+    }
+#endif
+    (void)model_path;
+    (void)audio_data;
+    (void)sample_rate;
+    (void)params;
     TranscriptionResult r;
     r.success = false;
     r.error = "whisper.cpp support is disabled";
@@ -363,7 +419,18 @@ TranscriptionResult WhisperManager::transcribe(
 size_t WhisperManager::loadedCount() const { return 0; }
 bool WhisperManager::unloadModel(const std::string&) { return false; }
 std::vector<std::string> WhisperManager::getLoadedModels() const { return {}; }
-bool WhisperManager::loadModelIfNeeded(const std::string&) { return false; }
+bool WhisperManager::loadModelIfNeeded(const std::string& model_path) {
+#ifdef XLLM_TESTING
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (transcribe_hook_) {
+            return true;
+        }
+    }
+#endif
+    (void)model_path;
+    return false;
+}
 
 void WhisperManager::setIdleTimeout(std::chrono::milliseconds timeout) { idle_timeout_ = timeout; }
 std::chrono::milliseconds WhisperManager::getIdleTimeout() const { return idle_timeout_; }
@@ -377,6 +444,15 @@ std::optional<std::chrono::steady_clock::time_point> WhisperManager::getLastAcce
     const std::string&) const {
     return std::nullopt;
 }
+
+#ifdef XLLM_TESTING
+void WhisperManager::setTranscribeHookForTest(
+    std::function<TranscriptionResult(
+        const std::string&, const std::vector<float>&, int, const TranscriptionParams&)> hook) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    transcribe_hook_ = std::move(hook);
+}
+#endif
 
 }  // namespace xllm
 

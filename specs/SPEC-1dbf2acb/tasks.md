@@ -1,3 +1,5 @@
+@claude
+
 # xLLM 統合仕様 - タスク一覧
 
 ## Setup
@@ -19,13 +21,13 @@
 ### Test
 
 - [x] T101: serve コマンドの契約テスト作成（cli_serve_test.cpp）
-- [x] T102: config.json読み込みのunitテスト作成（utils_config_test.cpp, YAML→JSON変更）
+- [x] T102: （廃止）config.json読み込みのunitテスト作成（config.json廃止のため不要）
 - [x] T103: シグナルハンドリングのテスト作成（cli_server_test.cpp, DISABLED）
 
 ### Core
 
 - [x] T104: serve コマンド実装（main.cppでrun_node呼び出し）
-- [x] T105: config.json パーサー実装（~/.xllm/config.json対応）
+- [x] T105: （廃止）config.json パーサー実装（config.json廃止のため不要）
 - [x] T106: シグナルハンドリング実装（SIGINT/SIGTERM, main.cpp）
 - [x] T107: --port, --host オプション対応（cli.cpp）
 
@@ -170,7 +172,7 @@
 
 ### Core
 
-- [x] T805: [P] CORS設定実装（config.yaml対応）
+- [x] T805: （廃止）CORS設定実装（設定ファイルは使用しない）
 - [x] T806: [P] Gzip圧縮実装
 - [x] T807: X-Request-IDヘッダー実装
 - [x] T808: ログローテーション実装

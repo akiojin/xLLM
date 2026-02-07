@@ -9,10 +9,14 @@
 #include <vector>
 #include <filesystem>
 #include <optional>
+#include <exception>
 #include <algorithm>
 #include <cctype>
 #include <mutex>
 #include <unordered_map>
+#include <cstdio>
+#include <cstring>
+#include <unistd.h>
 #include <nlohmann/json.hpp>
 
 #include "system/gpu_detector.h"
@@ -38,6 +42,88 @@
 #include <cstdlib>
 
 namespace {
+
+std::atomic<int> g_last_signal{0};
+
+const char* getenvWithFallback(const char* primary, const char* fallback) {
+    if (const char* v = std::getenv(primary)) {
+        if (*v) return v;
+    }
+    if (const char* v = std::getenv(fallback)) {
+        if (*v) {
+            spdlog::warn("Environment variable '{}' is deprecated, use '{}' instead", fallback, primary);
+            return v;
+        }
+    }
+    return nullptr;
+}
+
+void writeStderr(const char* msg) {
+    if (!msg) return;
+    ::write(STDERR_FILENO, msg, std::strlen(msg));
+}
+
+void writeLiteral(const char* msg, size_t len) {
+    if (!msg || len == 0) return;
+    ::write(STDERR_FILENO, msg, len);
+}
+
+void logSignal(int signal) {
+    switch (signal) {
+        case SIGINT:
+            writeLiteral("xllm: received SIGINT\n", sizeof("xllm: received SIGINT\n") - 1);
+            break;
+        case SIGTERM:
+            writeLiteral("xllm: received SIGTERM\n", sizeof("xllm: received SIGTERM\n") - 1);
+            break;
+        case SIGHUP:
+            writeLiteral("xllm: received SIGHUP\n", sizeof("xllm: received SIGHUP\n") - 1);
+            break;
+        case SIGABRT:
+            writeLiteral("xllm: received SIGABRT\n", sizeof("xllm: received SIGABRT\n") - 1);
+            break;
+        case SIGSEGV:
+            writeLiteral("xllm: received SIGSEGV\n", sizeof("xllm: received SIGSEGV\n") - 1);
+            break;
+        case SIGBUS:
+            writeLiteral("xllm: received SIGBUS\n", sizeof("xllm: received SIGBUS\n") - 1);
+            break;
+        default:
+            writeLiteral("xllm: received signal\n", sizeof("xllm: received signal\n") - 1);
+            break;
+    }
+}
+
+void signalHandler(int signal) {
+    g_last_signal.store(signal, std::memory_order_relaxed);
+    logSignal(signal);
+    xllm::request_shutdown();
+}
+
+void fatalSignalHandler(int signal) {
+    g_last_signal.store(signal, std::memory_order_relaxed);
+    logSignal(signal);
+    std::signal(signal, SIG_DFL);
+    std::raise(signal);
+}
+
+void installSignalHandlers() {
+    struct sigaction sa{};
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = signalHandler;
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGHUP, &sa, nullptr);
+
+    struct sigaction fa{};
+    sigemptyset(&fa.sa_mask);
+    fa.sa_flags = 0;
+    fa.sa_handler = fatalSignalHandler;
+    sigaction(SIGABRT, &fa, nullptr);
+    sigaction(SIGSEGV, &fa, nullptr);
+    sigaction(SIGBUS, &fa, nullptr);
+}
 
 struct HfModelRef {
     std::string repo;
@@ -166,9 +252,6 @@ std::optional<HfModelRef> parseHfModelRef(const std::string& input) {
 #ifdef USE_WHISPER
 #include "core/audio_manager.h"
 #include "api/audio_endpoints.h"
-#endif
-
-#ifdef USE_ONNX_RUNTIME
 #include "core/onnx_tts_manager.h"
 #endif
 
@@ -229,12 +312,13 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         xllm::AudioManager audio_manager(models_dir);
         spdlog::info("AudioManager initialized for ASR support");
         supported_runtimes.push_back("whisper_cpp");
+
+        // Initialize OnnxTtsManager for TTS (VibeVoice works even without ONNX runtime)
+        xllm::OnnxTtsManager tts_manager(models_dir);
+        spdlog::info("OnnxTtsManager initialized for TTS support");
 #endif
 
 #ifdef USE_ONNX_RUNTIME
-        // Initialize OnnxTtsManager for TTS
-        xllm::OnnxTtsManager tts_manager(models_dir);
-        spdlog::info("OnnxTtsManager initialized for TTS support");
         supported_runtimes.push_back("onnx_runtime");
 #endif
 
@@ -256,21 +340,24 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         fflush(stderr);
 
         // Configure on-demand model loading settings from environment variables
-        if (const char* idle_timeout_env = std::getenv("LLM_MODEL_IDLE_TIMEOUT")) {
-            int timeout_secs = std::atoi(idle_timeout_env);
-            if (timeout_secs > 0) {
-                llama_manager.setIdleTimeout(std::chrono::seconds(timeout_secs));
-                spdlog::info("Model idle timeout set to {} seconds", timeout_secs);
+        if (const char* idle_timeout_env = getenvWithFallback("XLLM_MODEL_IDLE_TIMEOUT",
+                                                              "LLM_MODEL_IDLE_TIMEOUT")) {
+            int timeout_ms = std::atoi(idle_timeout_env);
+            if (timeout_ms > 0) {
+                llama_manager.setIdleTimeout(std::chrono::milliseconds(timeout_ms));
+                spdlog::info("Model idle timeout set to {} ms", timeout_ms);
             }
         }
-        if (const char* max_models_env = std::getenv("LLM_MAX_LOADED_MODELS")) {
+        if (const char* max_models_env = getenvWithFallback("XLLM_MAX_LOADED_MODELS",
+                                                            "LLM_MAX_LOADED_MODELS")) {
             int max_models = std::atoi(max_models_env);
             if (max_models > 0) {
                 llama_manager.setMaxLoadedModels(static_cast<size_t>(max_models));
                 spdlog::info("Max loaded models set to {}", max_models);
             }
         }
-        if (const char* max_memory_env = std::getenv("LLM_MAX_MEMORY_BYTES")) {
+        if (const char* max_memory_env = getenvWithFallback("XLLM_MAX_MEMORY_BYTES",
+                                                            "LLM_MAX_MEMORY_BYTES")) {
             long long max_memory = std::atoll(max_memory_env);
             if (max_memory > 0) {
                 llama_manager.setMaxMemoryBytes(static_cast<size_t>(max_memory));
@@ -388,14 +475,9 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
         server.enableCompression(cfg.gzip_enabled);
 
 #ifdef USE_WHISPER
-        // Register audio endpoints for ASR (and TTS if available)
-#ifdef USE_ONNX_RUNTIME
+        // Register audio endpoints for ASR + TTS (VibeVoice works even without ONNX runtime)
         xllm::AudioEndpoints audio_endpoints(audio_manager, tts_manager);
         spdlog::info("Audio endpoints registered for ASR + TTS");
-#else
-        xllm::AudioEndpoints audio_endpoints(audio_manager);
-        spdlog::info("Audio endpoints registered for ASR");
-#endif
         audio_endpoints.registerRoutes(server.getServer());
 #endif
 
@@ -995,23 +1077,35 @@ int run_node(const xllm::NodeConfig& cfg, bool single_iteration) {
     return 0;
 }
 
-void signalHandler(int signal) {
-    std::cout << "Received signal " << signal << ", shutting down..." << std::endl;
-    xllm::request_shutdown();
-}
-
 #ifndef XLLM_TESTING
 int main(int argc, char* argv[]) {
+    installSignalHandlers();
+    std::set_terminate([]() {
+        writeStderr("xllm: std::terminate called\n");
+        std::_Exit(1);
+    });
+
+    std::atexit([]() {
+        int sig = g_last_signal.load(std::memory_order_relaxed);
+        if (sig != 0) {
+            char buf[128];
+            int len = std::snprintf(buf, sizeof(buf), "xllm: exiting after signal %d\n", sig);
+            if (len > 0) {
+                size_t n = static_cast<size_t>(len);
+                if (n > sizeof(buf) - 1) {
+                    n = sizeof(buf) - 1;
+                }
+                ::write(STDERR_FILENO, buf, n);
+            }
+        }
+    });
+
     // Parse CLI arguments first
     auto cli_result = xllm::parseCliArgs(argc, argv);
     if (cli_result.should_exit) {
         std::cout << cli_result.output;
         return cli_result.exit_code;
     }
-
-    // Set up signal handlers
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
 
     // Branch based on subcommand
     switch (cli_result.subcommand) {

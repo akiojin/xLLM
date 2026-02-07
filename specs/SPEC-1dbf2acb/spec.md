@@ -27,6 +27,8 @@ OpenAI互換APIでアプリケーションから利用したい。
 
 ### US-003: マルチモーダル対応
 
+@claude
+
 ユーザーとして、画像認識（Vision）、音声認識（ASR）、
 音声合成（TTS）、画像生成をローカルで実行したい。
 
@@ -37,15 +39,15 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **VRAM管理**: LRU方式による自動アンロード
 - **アクティブ保護**: 推論中のモデルはアンロード対象外
 - **アイドルタイムアウト**: 設定時間未使用で自動アンロード
-  - デフォルト: 300秒（5分）
-  - config.yamlの `inference.idle_timeout` で設定可能
+  - デフォルト: 300000ミリ秒（5分）
+  - 環境変数 `XLLM_MODEL_IDLE_TIMEOUT`（ミリ秒）で設定可能
 - **Tensor Parallelism**: 複数GPUへの自動分散
   - GPU数・VRAMを自動検出
   - **split比率**: VRAM比例配分で自動決定
   - 手動オーバーライドは不要（自動最適化のみ）
 - **GPU Offload**: VRAMに入りきらない場合はRAMを併用
   - **方式**: 最大限度GPUに載せ、残りはRAM（n_gpu_layers自動調整）
-- **モデル優先度**: config.yamlでVRAM保持優先度を設定可能（high/normal/low）
+- **モデル優先度**: 現状未実装（設定手段なし）
 
 ### FR-002: サーバーモード
 
@@ -59,8 +61,9 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **ログローテーション**: **日次ローテーション**（デフォルト）
 - **デフォルトログレベル**: info（`XLLM_LOG=debug` で詳細化）
 - **最大ペイロード**: 50MB（Vision画像もこの上限に含む）
-- **CORS**: config.yamlで設定可能
+- **CORS**: 環境変数で設定可能
   - **デフォルト**: `*`（全許可）
+  - `XLLM_CORS_ENABLED`, `XLLM_CORS_ALLOW_ORIGIN`, `XLLM_CORS_ALLOW_METHODS`, `XLLM_CORS_ALLOW_HEADERS`
 - **Gzip圧縮**: レスポンス圧縮をサポート
   - **閾値**: 10KB以上のレスポンスを圧縮
 - **TraceID**: `X-Request-ID` ヘッダーをサポート
@@ -91,7 +94,7 @@ OpenAI互換APIでアプリケーションから利用したい。
 - **タグ形式**: Ollama互換（`model:tag` 形式）
 - **モデル未指定時**: エラーを返却（自動選択なし）
 - **自動アップデート確認**: `xllm list --check-updates` でHuggingFace APIにより新版確認
-- **Preload設定**: CLIオプションとconfig.yamlの両方で指定可能
+- **Preload設定**: 現状未実装（設定手段なし）
 - **VRAM優先度**: モデルごとにVRAM保持優先度を設定可能
 - **オンデマンドロード**: タイムアウトなし（ロード完了まで待機）
 
@@ -103,8 +106,7 @@ OpenAI互換APIでアプリケーションから利用したい。
   - **タイムアウト**: 無制限
   - **キュー上限**: 1000リクエスト
 - **Prompt Cache**: 自動有効（llama.cppのprefix cache活用）
-- **Speculative Decoding**: サポート
-  - **指定方法**: CLI（`--draft-model`）、Modelfile、config.yaml、APIリクエスト
+- **Speculative Decoding**: 現状未実装（設定手段なし）
 - **Context Length**: リクエスト毎に動的指定可能
 - **Embeddings Batch**: 複数テキストの一括埋め込みをサポート
   - **バッチサイズ上限**: 無制限（メモリが許す限り）
@@ -249,47 +251,10 @@ llama3:8b     abc123def     4.7 GB    100% GPU     4 minutes from now
 
 - **出力内容**: モデル + 全メタデータ（KVキャッシュ等を含む）
 
-## 設定ファイル
+## 設定
 
-### config.yaml
-
-場所: `~/.xllm/config.yaml`
-
-```yaml
-server:
-  port: 32769
-  host: 0.0.0.0
-  log_file: ~/.xllm/logs/xllm.log
-  log_rotation:
-    max_size: 100MB
-    max_files: 10
-  cors:
-    allowed_origins:
-      - "*"
-    allowed_methods:
-      - GET
-      - POST
-  gzip: true
-
-models:
-  directory: ~/.xllm/models
-  preload:
-    - llama3:8b
-    - mistral:7b
-  priority:
-    llama3:8b: high
-
-images:
-  directory: ~/.xllm/images
-  ttl_hours: 1
-
-gpu:
-  # 自動検出（手動設定は不要）
-
-inference:
-  idle_timeout: 300  # 秒
-  request_timeout: 60  # 秒
-```
+- 設定は環境変数のみで行う（設定ファイルは廃止）。
+- 既存の設定ファイルは読み込まない。
 
 ### Modelfile（Ollama完全互換）
 
@@ -307,7 +272,6 @@ inference:
 
 1. コマンドライン引数（最優先）
 2. 環境変数
-3. config.yaml（最低優先）
 
 ## API仕様
 

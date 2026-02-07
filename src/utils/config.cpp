@@ -4,14 +4,11 @@
 #include <optional>
 #include <algorithm>
 #include <cctype>
-#include <fstream>
-#include <nlohmann/json.hpp>
 #include <sstream>
 #include <spdlog/spdlog.h>
 #ifdef _WIN32
 #include <windows.h>
 #endif
-#include "utils/file_lock.h"
 #include "utils/allowlist.h"
 
 namespace xllm {
@@ -61,6 +58,17 @@ std::optional<std::string> getEnvWithFallback(const char* new_name, const char* 
     return std::nullopt;
 }
 
+std::optional<bool> parseBoolEnv(const std::string& value) {
+    std::string lower;
+    lower.reserve(value.size());
+    for (char c : value) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower == "1" || lower == "true" || lower == "yes" || lower == "on") return true;
+    if (lower == "0" || lower == "false" || lower == "no" || lower == "off") return false;
+    return std::nullopt;
+}
+
 }  // namespace
 
 DownloadConfig loadDownloadConfig() {
@@ -71,46 +79,7 @@ DownloadConfig loadDownloadConfig() {
 std::pair<DownloadConfig, std::string> loadDownloadConfigWithLog() {
     DownloadConfig cfg;
     std::ostringstream log;
-    bool used_file = false;
     bool used_env = false;
-
-    // Optional JSON config file: path from LLM_DL_CONFIG or ~/.xllm/config.json
-    auto load_from_file = [&](const std::filesystem::path& path) {
-        if (!std::filesystem::exists(path)) return false;
-        try {
-#ifndef _WIN32
-            FileLock lock(path);
-#endif
-            std::ifstream ifs(path);
-            if (!ifs.is_open()) return false;
-
-            nlohmann::json j;
-            ifs >> j;
-            if (j.contains("max_retries")) cfg.max_retries = j.value("max_retries", cfg.max_retries);
-            if (j.contains("backoff_ms")) cfg.backoff = std::chrono::milliseconds(j.value("backoff_ms", cfg.backoff.count()));
-            if (j.contains("concurrency")) cfg.max_concurrency = j.value("concurrency", cfg.max_concurrency);
-            if (j.contains("max_bps")) cfg.max_bytes_per_sec = j.value("max_bps", cfg.max_bytes_per_sec);
-            if (j.contains("chunk")) cfg.chunk_size = j.value("chunk", cfg.chunk_size);
-            log << "file=" << path << " ";
-            return true;
-        } catch (...) {
-            return false;
-        }
-    };
-
-    if (auto env = getEnvValue("LLM_DL_CONFIG")) {
-        if (load_from_file(*env)) {
-            used_file = true;
-        }
-    } else {
-        try {
-            std::filesystem::path home = getEnvValue("HOME").value_or("");
-            auto path = home / std::filesystem::path(".xllm/config.json");
-            if (load_from_file(path)) {
-                used_file = true;
-            }
-        } catch (...) {}
-    }
 
     if (auto env = getEnvValue("LLM_DL_MAX_RETRIES")) {
         try {
@@ -157,42 +126,32 @@ std::pair<DownloadConfig, std::string> loadDownloadConfigWithLog() {
         } catch (...) {}
     }
 
+    if (auto env = getEnvValue("LLM_DL_TIMEOUT_MS")) {
+        try {
+            long long v = std::stoll(*env);
+            if (v > 0) cfg.timeout = std::chrono::milliseconds(v);
+            log << "env:TIMEOUT_MS=" << v << " ";
+            used_env = true;
+        } catch (...) {}
+    }
+
     if (log.tellp() > 0) log << "|";
     log << "sources=";
     if (used_env) log << "env";
-    if (used_file) {
-        if (used_env) log << ",";
-        log << "file";
-    }
-    if (!used_env && !used_file) log << "default";
+    if (!used_env) log << "default";
 
     return {cfg, log.str()};
 }
 
 namespace {
 
-std::filesystem::path defaultConfigPath() {
+std::filesystem::path defaultModelsDir() {
     try {
         std::filesystem::path home = getEnvValue("HOME").value_or("");
-        if (!home.empty()) return home / ".xllm/config.json";
+        if (!home.empty()) return home / ".xllm/models";
     } catch (...) {
     }
     return std::filesystem::path();
-}
-
-bool readJsonWithLock(const std::filesystem::path& path, nlohmann::json& out) {
-    if (!std::filesystem::exists(path)) return false;
-#ifndef _WIN32
-    FileLock lock(path);
-#endif
-    try {
-        std::ifstream ifs(path);
-        if (!ifs.is_open()) return false;
-        ifs >> out;
-        return true;
-    } catch (...) {
-        return false;
-    }
 }
 
 }  // namespace
@@ -203,92 +162,12 @@ std::pair<NodeConfig, std::string> loadNodeConfigWithLog() {
     cfg.require_gpu = true;
     std::ostringstream log;
     bool used_env = false;
-    bool used_file = false;
 
     // defaults: ~/.xllm/models/
-    cfg.models_dir = defaultConfigPath().empty()
+    cfg.models_dir = defaultModelsDir().empty()
                          ? ".xllm/models"
-                         : (defaultConfigPath().parent_path() / "models").string();
+                         : defaultModelsDir().string();
     cfg.origin_allowlist = splitAllowlistCsv("huggingface.co/*,cdn-lfs.huggingface.co/*");
-
-    auto apply_json = [&](const nlohmann::json& j) {
-        if (j.contains("models_dir") && j["models_dir"].is_string()) {
-            cfg.models_dir = j["models_dir"].get<std::string>();
-        }
-        if (j.contains("node_port") && j["node_port"].is_number()) {
-            cfg.node_port = j["node_port"].get<int>();
-        }
-        if (j.contains("bind_address") && j["bind_address"].is_string()) {
-            cfg.bind_address = j["bind_address"].get<std::string>();
-        }
-        if (j.contains("origin_allowlist")) {
-            const auto& v = j["origin_allowlist"];
-            std::vector<std::string> list;
-            if (v.is_array()) {
-                for (const auto& item : v) {
-                    if (item.is_string()) {
-                        list.push_back(item.get<std::string>());
-                    }
-                }
-            } else if (v.is_string()) {
-                list = splitAllowlistCsv(v.get<std::string>());
-            }
-            if (!list.empty()) cfg.origin_allowlist = std::move(list);
-        }
-        if (j.contains("cors") && j["cors"].is_object()) {
-            const auto& cors = j["cors"];
-            if (cors.contains("enabled") && cors["enabled"].is_boolean()) {
-                cfg.cors_enabled = cors["enabled"].get<bool>();
-            }
-            if (cors.contains("allow_origin") && cors["allow_origin"].is_string()) {
-                cfg.cors_allow_origin = cors["allow_origin"].get<std::string>();
-            }
-            if (cors.contains("allow_methods") && cors["allow_methods"].is_string()) {
-                cfg.cors_allow_methods = cors["allow_methods"].get<std::string>();
-            }
-            if (cors.contains("allow_headers") && cors["allow_headers"].is_string()) {
-                cfg.cors_allow_headers = cors["allow_headers"].get<std::string>();
-            }
-        }
-        if (j.contains("cors_allow_origin") && j["cors_allow_origin"].is_string()) {
-            cfg.cors_allow_origin = j["cors_allow_origin"].get<std::string>();
-        }
-        if (j.contains("cors_allow_methods") && j["cors_allow_methods"].is_string()) {
-            cfg.cors_allow_methods = j["cors_allow_methods"].get<std::string>();
-        }
-        if (j.contains("cors_allow_headers") && j["cors_allow_headers"].is_string()) {
-            cfg.cors_allow_headers = j["cors_allow_headers"].get<std::string>();
-        }
-        if (j.contains("cors_enabled") && j["cors_enabled"].is_boolean()) {
-            cfg.cors_enabled = j["cors_enabled"].get<bool>();
-        }
-        if (j.contains("gzip") && j["gzip"].is_object()) {
-            const auto& gzip = j["gzip"];
-            if (gzip.contains("enabled") && gzip["enabled"].is_boolean()) {
-                cfg.gzip_enabled = gzip["enabled"].get<bool>();
-            }
-        }
-        if (j.contains("gzip_enabled") && j["gzip_enabled"].is_boolean()) {
-            cfg.gzip_enabled = j["gzip_enabled"].get<bool>();
-        }
-    };
-
-    // file
-    std::filesystem::path cfg_path;
-    if (auto env = getEnvValue("XLLM_CONFIG")) {
-        cfg_path = *env;
-    } else {
-        cfg_path = defaultConfigPath();
-    }
-
-    if (!cfg_path.empty()) {
-        nlohmann::json j;
-        if (readJsonWithLock(cfg_path, j)) {
-            apply_json(j);
-            log << "file=" << cfg_path << " ";
-            used_file = true;
-        }
-    }
 
     // env overrides with fallback to deprecated names
     // New names: XLLM_*
@@ -299,8 +178,7 @@ std::pair<NodeConfig, std::string> loadNodeConfigWithLog() {
         log << "env:MODELS_DIR=" << *v << " ";
         used_env = true;
     }
-    if (auto v = getEnvWithFallback("XLLM_PORT", "XLLM_PORT")) {
-        // XLLM_PORT is already the correct name
+    if (auto v = getEnvWithFallback("XLLM_PORT", "LLM_PORT")) {
         try {
             cfg.node_port = std::stoi(*v);
             log << "env:NODE_PORT=" << cfg.node_port << " ";
@@ -321,6 +199,29 @@ std::pair<NodeConfig, std::string> loadNodeConfigWithLog() {
         }
     }
 
+    if (auto v = getEnvWithFallback("XLLM_CORS_ENABLED", "LLM_CORS_ENABLED")) {
+        if (auto parsed = parseBoolEnv(*v)) {
+            cfg.cors_enabled = *parsed;
+            log << "env:CORS_ENABLED=" << (*parsed ? "true" : "false") << " ";
+            used_env = true;
+        }
+    }
+    if (auto v = getEnvWithFallback("XLLM_CORS_ALLOW_ORIGIN", "LLM_CORS_ALLOW_ORIGIN")) {
+        cfg.cors_allow_origin = *v;
+        log << "env:CORS_ALLOW_ORIGIN=" << *v << " ";
+        used_env = true;
+    }
+    if (auto v = getEnvWithFallback("XLLM_CORS_ALLOW_METHODS", "LLM_CORS_ALLOW_METHODS")) {
+        cfg.cors_allow_methods = *v;
+        log << "env:CORS_ALLOW_METHODS=" << *v << " ";
+        used_env = true;
+    }
+    if (auto v = getEnvWithFallback("XLLM_CORS_ALLOW_HEADERS", "LLM_CORS_ALLOW_HEADERS")) {
+        cfg.cors_allow_headers = *v;
+        log << "env:CORS_ALLOW_HEADERS=" << *v << " ";
+        used_env = true;
+    }
+
     if (auto v = getEnvValue("LLM_DEFAULT_EMBEDDING_MODEL")) {
         cfg.default_embedding_model = *v;
         log << "env:DEFAULT_EMBEDDING_MODEL=" << *v << " ";
@@ -330,11 +231,7 @@ std::pair<NodeConfig, std::string> loadNodeConfigWithLog() {
     if (log.tellp() > 0) log << "|";
     log << "sources=";
     if (used_env) log << "env";
-    if (used_file) {
-        if (used_env) log << ",";
-        log << "file";
-    }
-    if (!used_env && !used_file) log << "default";
+    if (!used_env) log << "default";
 
     return {cfg, log.str()};
 }

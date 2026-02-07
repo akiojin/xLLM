@@ -1,3 +1,5 @@
+@claude
+
 # xLLM 統合仕様 - 実装計画
 
 ## 概要
@@ -45,7 +47,6 @@ xLLMの全機能を統合的に実装するための計画。
 | Function Calling | core/function_calling.cpp | 部分実装 |
 | Prometheus Metrics | metrics/ | 未実装 |
 | Modelfile完全互換 | - | 未実装 |
-| config.yaml | - | 未実装 |
 
 ## 実装フェーズ
 
@@ -56,10 +57,9 @@ xLLMの全機能を統合的に実装するための計画。
    - シグナルハンドリング（SIGINT/SIGTERM）
    - --port, --host オプション
 
-2. **config.yaml対応**
-   - 設定ファイルの読み込み
-   - デフォルト値の定義
-   - 環境変数オーバーライド
+2. **設定は環境変数のみ（設定ファイル廃止）**
+   - 設定ファイルの読み込みは行わない
+   - デフォルト値はコード側で保持
 
 ### Phase 2: メモリ管理強化
 
@@ -133,8 +133,8 @@ xLLMの全機能を統合的に実装するための計画。
 ### Phase 8: HTTP機能強化
 
 1. **CORS対応**
-   - config.yamlで設定可能
-   - allowed_origins等
+   - 環境変数で設定可能
+   - `XLLM_CORS_ALLOW_ORIGIN` など
 
 2. **圧縮・トレーシング**
    - Gzip圧縮
