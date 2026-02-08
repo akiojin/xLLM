@@ -2,8 +2,6 @@ name: E2E Real Models
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 3 * * *"
 
 concurrency:
   group: e2e-real-models-${{ github.ref }}
@@ -12,6 +10,7 @@ concurrency:
 jobs:
   real-models:
     if: >-
+      vars.XLLM_E2E_RUN_IN_CI == 'true' &&
       vars.XLLM_E2E_TEXT_MODEL_REF != '' &&
       vars.XLLM_E2E_VISION_MODEL_REF != '' &&
       vars.XLLM_E2E_IMAGE_MODEL_REF != '' &&
