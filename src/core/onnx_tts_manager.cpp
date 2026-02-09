@@ -3,13 +3,18 @@
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <algorithm>
+#include <cctype>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 
-#if defined(__APPLE__)
+#if defined(_WIN32)
+#include <process.h>
+#elif defined(__APPLE__) || defined(__linux__)
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -20,12 +25,25 @@ namespace xllm {
 
 namespace {
 
-#if defined(__APPLE__)
+#if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
 int run_command(const std::vector<std::string>& args) {
     if (args.empty()) {
         return -1;
     }
 
+#if defined(_WIN32)
+    std::vector<const char*> argv;
+    argv.reserve(args.size() + 1);
+    for (const auto& a : args) {
+        argv.push_back(a.c_str());
+    }
+    argv.push_back(nullptr);
+    int rc = _spawnvp(_P_WAIT, argv[0], argv.data());
+    if (rc == -1) {
+        return errno ? errno : -1;
+    }
+    return rc;
+#else
     std::vector<char*> argv;
     argv.reserve(args.size() + 1);
     for (const auto& a : args) {
@@ -50,6 +68,7 @@ int run_command(const std::vector<std::string>& args) {
         return 128 + WTERMSIG(status);
     }
     return -1;
+#endif
 }
 
 std::vector<uint8_t> read_file_bytes(const std::filesystem::path& path) {
@@ -70,6 +89,156 @@ std::vector<uint8_t> read_file_bytes(const std::filesystem::path& path) {
         throw std::runtime_error("Failed to read file: " + path.string());
     }
     return data;
+}
+
+bool is_falsey_env_value(const char* value) {
+    if (!value) {
+        return false;
+    }
+    std::string lowered(value);
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lowered == "0" || lowered == "false" || lowered == "no";
+}
+
+std::string env_or_default(const char* key, const std::string& fallback) {
+    const char* value = std::getenv(key);
+    if (value && std::strlen(value) > 0) {
+        return value;
+    }
+    return fallback;
+}
+
+std::filesystem::path default_vibevoice_cache_dir() {
+#if defined(_WIN32)
+    if (const char* local_app_data = std::getenv("LOCALAPPDATA");
+        local_app_data && std::strlen(local_app_data) > 0) {
+        return std::filesystem::path(local_app_data) / "xllm" / "vibevoice";
+    }
+    if (const char* user_profile = std::getenv("USERPROFILE");
+        user_profile && std::strlen(user_profile) > 0) {
+        return std::filesystem::path(user_profile) / "AppData" / "Local" / "xllm" / "vibevoice";
+    }
+#elif defined(__APPLE__)
+    if (const char* home = std::getenv("HOME"); home && std::strlen(home) > 0) {
+        return std::filesystem::path(home) / "Library" / "Caches" / "xllm" / "vibevoice";
+    }
+#else
+    if (const char* home = std::getenv("HOME"); home && std::strlen(home) > 0) {
+        return std::filesystem::path(home) / ".cache" / "xllm" / "vibevoice";
+    }
+#endif
+    if (const char* tmp = std::getenv("TMPDIR"); tmp && std::strlen(tmp) > 0) {
+        return std::filesystem::path(tmp) / "xllm" / "vibevoice";
+    }
+    return std::filesystem::temp_directory_path() / "xllm" / "vibevoice";
+}
+
+std::optional<std::string> resolve_vibevoice_runner(std::string* error) {
+    const char* runner_env = std::getenv("XLLM_VIBEVOICE_RUNNER");
+    if (runner_env && std::strlen(runner_env) > 0) {
+        return std::string(runner_env);
+    }
+
+    const char* auto_env = std::getenv("XLLM_VIBEVOICE_AUTO_DOWNLOAD");
+    if (is_falsey_env_value(auto_env)) {
+        if (error) {
+            *error = "XLLM_VIBEVOICE_RUNNER environment variable not set";
+        }
+        return std::nullopt;
+    }
+
+    std::filesystem::path cache_dir = env_or_default(
+        "XLLM_VIBEVOICE_RUNNER_DIR",
+        default_vibevoice_cache_dir().string());
+
+    std::string repo = env_or_default(
+        "XLLM_VIBEVOICE_RUNNER_REPO",
+        "https://github.com/microsoft/VibeVoice.git");
+    std::string ref = env_or_default(
+        "XLLM_VIBEVOICE_RUNNER_REF",
+        "main");
+    std::string runner_rel_path = env_or_default(
+        "XLLM_VIBEVOICE_RUNNER_PATH",
+        "demo/vibevoice_realtime_demo.py");
+
+    std::filesystem::path runner_path = cache_dir / runner_rel_path;
+    if (std::filesystem::exists(runner_path)) {
+        spdlog::info("Using cached VibeVoice runner: {}", runner_path.string());
+        return runner_path.string();
+    }
+
+    try {
+        if (!std::filesystem::exists(cache_dir)) {
+            auto parent = cache_dir.parent_path();
+            if (!parent.empty()) {
+                std::filesystem::create_directories(parent);
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        if (error) {
+            *error = std::string("Failed to prepare VibeVoice cache dir: ") + e.what();
+        }
+        return std::nullopt;
+    }
+
+    spdlog::info("Auto-downloading VibeVoice runner into {}", cache_dir.string());
+
+    if (std::filesystem::exists(cache_dir / ".git")) {
+        int rc = run_command({"git", "-C", cache_dir.string(), "fetch", "--depth", "1", "origin", ref});
+        if (rc != 0) {
+            if (error) {
+                *error = "Failed to fetch VibeVoice runner repository (git fetch exit " +
+                         std::to_string(rc) + ")";
+            }
+            return std::nullopt;
+        }
+        rc = run_command({"git", "-C", cache_dir.string(), "checkout", "-f", "FETCH_HEAD"});
+        if (rc != 0) {
+            if (error) {
+                *error = "Failed to checkout VibeVoice runner repository (git checkout exit " +
+                         std::to_string(rc) + ")";
+            }
+            return std::nullopt;
+        }
+    } else {
+        if (std::filesystem::exists(cache_dir) && !std::filesystem::is_empty(cache_dir)) {
+            if (error) {
+                *error = "VibeVoice runner cache dir not empty and not a git repo: " +
+                         cache_dir.string();
+            }
+            return std::nullopt;
+        }
+        if (std::filesystem::exists(cache_dir)) {
+            std::filesystem::remove(cache_dir);
+        }
+        int rc = run_command({"git", "clone", "--depth", "1", "--branch", ref, repo, cache_dir.string()});
+        if (rc != 0) {
+            if (std::filesystem::exists(cache_dir)) {
+                std::filesystem::remove_all(cache_dir);
+            }
+            rc = run_command({"git", "clone", "--depth", "1", repo, cache_dir.string()});
+            if (rc == 0) {
+                rc = run_command({"git", "-C", cache_dir.string(), "checkout", ref});
+            }
+        }
+        if (rc != 0) {
+            if (error) {
+                *error = "Failed to clone VibeVoice runner repository (git clone exit " +
+                         std::to_string(rc) + ")";
+            }
+            return std::nullopt;
+        }
+    }
+
+    if (!std::filesystem::exists(runner_path)) {
+        if (error) {
+            *error = "VibeVoice runner script not found: " + runner_path.string();
+        }
+        return std::nullopt;
+    }
+
+    return runner_path.string();
 }
 #endif
 
@@ -267,20 +436,29 @@ SpeechResult OnnxTtsManager::synthesize(
 
     // Handle VibeVoice via external Python runner
     if (isVibeVoice(model_path)) {
-#if defined(__APPLE__)
+#if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
         // Get configuration from environment variables
-        const char* runner_env = std::getenv("XLLM_VIBEVOICE_RUNNER");
-        if (!runner_env || std::strlen(runner_env) == 0) {
-            result.error = "XLLM_VIBEVOICE_RUNNER environment variable not set";
+        std::string runner_error;
+        auto resolved_runner = resolve_vibevoice_runner(&runner_error);
+        if (!resolved_runner) {
+            result.error = runner_error.empty()
+                               ? "XLLM_VIBEVOICE_RUNNER environment variable not set"
+                               : runner_error;
             return result;
         }
-        std::string runner_path = runner_env;
+        std::string runner_path = *resolved_runner;
 
         const char* python_env = std::getenv("XLLM_VIBEVOICE_PYTHON");
         std::string python_bin = python_env ? python_env : "python3";
 
         const char* device_env = std::getenv("XLLM_VIBEVOICE_DEVICE");
-        std::string device = device_env ? device_env : "mps";
+        std::string device = device_env
+                                 ? device_env
+#if defined(__APPLE__)
+                                 : "mps";
+#else
+                                 : "cuda";
+#endif
 
         const char* model_env = std::getenv("XLLM_VIBEVOICE_MODEL");
         std::string model_id = model_env ? model_env : "microsoft/VibeVoice-Realtime-0.5B";
@@ -356,7 +534,7 @@ SpeechResult OnnxTtsManager::synthesize(
         std::filesystem::remove_all(temp_dir);
         return result;
 #else
-        result.error = "VibeVoice is only supported on macOS";
+        result.error = "VibeVoice runner is not supported on this platform";
         return result;
 #endif
     }

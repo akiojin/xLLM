@@ -287,7 +287,13 @@ if [[ "$XLLM_E2E_TTS_MODEL" != "vibevoice" && "$XLLM_E2E_TTS_MODEL" != *"VibeVoi
   echo "[ERROR] TTS E2E currently requires VibeVoice (set XLLM_E2E_TTS_MODEL=vibevoice)" >&2
   exit 1
 fi
-require_env XLLM_VIBEVOICE_RUNNER
+auto_download="${XLLM_VIBEVOICE_AUTO_DOWNLOAD:-1}"
+auto_download_lower="$(printf '%s' "$auto_download" | tr '[:upper:]' '[:lower:]')"
+if [[ "$auto_download_lower" == "0" || "$auto_download_lower" == "false" || "$auto_download_lower" == "no" ]]; then
+  require_env XLLM_VIBEVOICE_RUNNER
+else
+  echo "[INFO] VibeVoice runner will auto-download unless XLLM_VIBEVOICE_RUNNER is set."
+fi
 
 echo "[INFO] Running text generation..."
 text_body=$(jq -n --arg model "$text_model" '{model:$model,messages:[{role:"user",content:"hello"}] }')

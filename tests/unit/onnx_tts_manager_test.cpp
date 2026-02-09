@@ -96,17 +96,14 @@ TEST(OnnxTtsManagerTest, SynthesizeRejectsEmptyText) {
 }
 
 TEST(OnnxTtsManagerTest, VibeVoiceRequiresRunnerEnv) {
-    EnvGuard guard({"XLLM_VIBEVOICE_RUNNER"});
+    EnvGuard guard({"XLLM_VIBEVOICE_RUNNER", "XLLM_VIBEVOICE_AUTO_DOWNLOAD"});
     unsetenv("XLLM_VIBEVOICE_RUNNER");
+    setenv("XLLM_VIBEVOICE_AUTO_DOWNLOAD", "0", 1);
 
     xllm::OnnxTtsManager manager("/tmp");
     auto result = manager.synthesize("vibevoice", "hello", {});
     EXPECT_FALSE(result.success);
-#if defined(__APPLE__)
     EXPECT_EQ(result.error, "XLLM_VIBEVOICE_RUNNER environment variable not set");
-#else
-    EXPECT_EQ(result.error, "VibeVoice is only supported on macOS");
-#endif
 }
 
 TEST(OnnxTtsManagerTest, SupportedVoicesContainsDefaults) {
