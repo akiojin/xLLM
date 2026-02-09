@@ -557,9 +557,9 @@ SpeechResult OnnxTtsManager::synthesize(
         const char* voice_prompt_env = std::getenv("XLLM_VIBEVOICE_VOICE_PROMPT");
         std::string voice_prompt_path = voice_prompt_env ? voice_prompt_env : "";
 
-        // Create temporary directory for output
+        // Create a unique temporary directory for output
         auto temp_dir = std::filesystem::temp_directory_path() /
-                        ("vibevoice_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+                        std::filesystem::unique_path("vibevoice_%%%%-%%%%-%%%%-%%%%");
         std::filesystem::create_directories(temp_dir);
         auto output_path = temp_dir / "output.wav";
 
