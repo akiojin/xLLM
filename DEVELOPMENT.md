@@ -68,47 +68,9 @@ Use the model verification suite or explicit E2E coverage and record results in 
   `--capability TextGeneration --platform`
 - Real-model E2E: `tests/e2e/real_models/run.sh` (see below)
 
-## Real-model E2E (xLLM, all modalities)
+## Real-model E2E
 
-Contract/integration tests run with test hooks (no real weights). For real-model
-coverage across text, vision, image generation, ASR, and TTS:
-
-```bash
-cmake -S . -B build -DBUILD_TESTS=OFF -DPORTABLE_BUILD=ON \
-  -DBUILD_WITH_WHISPER=ON -DBUILD_WITH_SD=ON -DBUILD_WITH_ONNX=OFF
-cmake --build build --config Release
-tests/e2e/real_models/run.sh
-```
-
-Required environment:
-
-- `HF_TOKEN` (Hugging Face auth token for gated models)
-- `XLLM_E2E_TEXT_MODEL_REF`
-- `XLLM_E2E_VISION_MODEL_REF`
-- `XLLM_E2E_IMAGE_MODEL_REF`
-- `XLLM_E2E_ASR_MODEL_REF`
-- `XLLM_E2E_TTS_MODEL` (use `vibevoice`)
-- `XLLM_VIBEVOICE_RUNNER` (optional if auto-download is enabled)
-
-Optional overrides:
-
-- `XLLM_E2E_IMAGE_MODEL_FILE` (explicit filename under the pulled image model dir)
-- `XLLM_E2E_ASR_MODEL_FILE` (explicit filename under the pulled ASR model dir)
-- `XLLM_E2E_IMAGE_STEPS` (default: 4)
-- `XLLM_E2E_IMAGE_SIZE` (default: 256x256)
-- `XLLM_E2E_TIMEOUT` (startup timeout seconds, default: 600)
-- `XLLM_E2E_STREAMING` (default: 1; set 0 to skip streaming checks)
-- `XLLM_VIBEVOICE_AUTO_DOWNLOAD` (default: 1; set 0 to require XLLM_VIBEVOICE_RUNNER)
-- `XLLM_VIBEVOICE_RUNNER_DIR` (default: platform cache dir; macOS `~/Library/Caches/xllm/vibevoice`, Linux `~/.cache/xllm/vibevoice`, Windows `%LOCALAPPDATA%\\xllm\\vibevoice`)
-- `XLLM_VIBEVOICE_RUNNER_REPO` (default: `https://github.com/microsoft/VibeVoice.git`)
-- `XLLM_VIBEVOICE_RUNNER_REF` (default: `main`)
-- `XLLM_VIBEVOICE_RUNNER_PATH` (default: `demo/vibevoice_realtime_demo.py`)
-
-Notes:
-
-- VibeVoice TTS runs the Python runner; ensure `git` and Python deps are available on your OS.
-- Auto-download uses `git` and network access; set `XLLM_VIBEVOICE_RUNNER` to skip downloads.
-- The GitHub Actions workflow `E2E Real Models` consumes the same env vars (set them as repo vars/secrets).
+Moved to `specs/SPEC-1dbf2acb/spec.md`.
 
 ## Environment Variables
 
