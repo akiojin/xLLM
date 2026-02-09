@@ -161,4 +161,6 @@ Notes:
 
 Notes:
 
-- xLLM TTS currently supports VibeVoice only. If `XLLM_VIBEVOICE_RUNNER` is not set, xLLM auto-downloads the VibeVoice runner by default. Popular list is limited to supported models.
+- xLLM TTS currently supports VibeVoice only. If `XLLM_VIBEVOICE_RUNNER` is not
+  set, xLLM auto-downloads the VibeVoice runner by default. Popular list is
+  limited to supported models.

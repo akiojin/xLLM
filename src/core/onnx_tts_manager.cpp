@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdint>
+#include <chrono>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
@@ -14,10 +15,12 @@
 
 #if defined(_WIN32)
 #include <process.h>
+#include <windows.h>
 #elif defined(__APPLE__) || defined(__linux__)
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <signal.h>
 extern char** environ;
 #endif
 
@@ -26,7 +29,7 @@ namespace xllm {
 namespace {
 
 #if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
-int run_command(const std::vector<std::string>& args) {
+int run_command(const std::vector<std::string>& args, int timeout_seconds = -1) {
     if (args.empty()) {
         return -1;
     }
@@ -38,11 +41,32 @@ int run_command(const std::vector<std::string>& args) {
         argv.push_back(a.c_str());
     }
     argv.push_back(nullptr);
-    int rc = _spawnvp(_P_WAIT, argv[0], argv.data());
-    if (rc == -1) {
+    intptr_t pid = _spawnvp(_P_NOWAIT, argv[0], argv.data());
+    if (pid == -1) {
         return errno ? errno : -1;
     }
-    return rc;
+    if (timeout_seconds <= 0) {
+        int rc = _cwait(nullptr, pid, _WAIT_CHILD);
+        if (rc == -1) {
+            return errno ? errno : -1;
+        }
+        return 0;
+    }
+    int elapsed = 0;
+    while (elapsed < timeout_seconds) {
+        int status = 0;
+        intptr_t result = _cwait(&status, pid, _WAIT_CHILD);
+        if (result == pid) {
+            if (status == -1) {
+                return errno ? errno : -1;
+            }
+            return status;
+        }
+        Sleep(1000);
+        elapsed += 1;
+    }
+    _cwait(nullptr, pid, _KILL_CHILD);
+    return 124;
 #else
     std::vector<char*> argv;
     argv.reserve(args.size() + 1);
@@ -58,8 +82,29 @@ int run_command(const std::vector<std::string>& args) {
     }
 
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
-        return -1;
+    if (timeout_seconds > 0) {
+        auto start = std::chrono::steady_clock::now();
+        while (true) {
+            pid_t rc = waitpid(pid, &status, WNOHANG);
+            if (rc == pid) {
+                break;
+            }
+            if (rc == -1) {
+                return -1;
+            }
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - start);
+            if (elapsed.count() >= timeout_seconds) {
+                kill(pid, SIGKILL);
+                waitpid(pid, &status, 0);
+                return 124;
+            }
+            usleep(100000);
+        }
+    } else {
+        if (waitpid(pid, &status, 0) == -1) {
+            return -1;
+        }
     }
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
@@ -152,6 +197,15 @@ std::optional<std::string> resolve_vibevoice_runner(std::string* error) {
         "XLLM_VIBEVOICE_RUNNER_DIR",
         default_vibevoice_cache_dir().string());
 
+    int git_timeout_seconds = 600;
+    if (const char* timeout_env = std::getenv("XLLM_VIBEVOICE_GIT_TIMEOUT_SECONDS")) {
+        try {
+            git_timeout_seconds = std::stoi(timeout_env);
+        } catch (const std::exception&) {
+            git_timeout_seconds = 600;
+        }
+    }
+
     std::string repo = env_or_default(
         "XLLM_VIBEVOICE_RUNNER_REPO",
         "https://github.com/microsoft/VibeVoice.git");
@@ -164,6 +218,21 @@ std::optional<std::string> resolve_vibevoice_runner(std::string* error) {
 
     std::filesystem::path runner_path = cache_dir / runner_rel_path;
     if (std::filesystem::exists(runner_path)) {
+        if (std::filesystem::exists(cache_dir / ".git")) {
+            int rc = run_command({"git", "-C", cache_dir.string(), "fetch", "--depth", "1", "origin", ref},
+                                 git_timeout_seconds);
+            if (rc == 0) {
+                rc = run_command({"git", "-C", cache_dir.string(), "checkout", "-f", "FETCH_HEAD"},
+                                 git_timeout_seconds);
+            }
+            if (rc != 0) {
+                if (error) {
+                    *error = "Failed to refresh VibeVoice runner repository (git exit " +
+                             std::to_string(rc) + ")";
+                }
+                return std::nullopt;
+            }
+        }
         spdlog::info("Using cached VibeVoice runner: {}", runner_path.string());
         return runner_path.string();
     }
@@ -185,7 +254,8 @@ std::optional<std::string> resolve_vibevoice_runner(std::string* error) {
     spdlog::info("Auto-downloading VibeVoice runner into {}", cache_dir.string());
 
     if (std::filesystem::exists(cache_dir / ".git")) {
-        int rc = run_command({"git", "-C", cache_dir.string(), "fetch", "--depth", "1", "origin", ref});
+        int rc = run_command({"git", "-C", cache_dir.string(), "fetch", "--depth", "1", "origin", ref},
+                             git_timeout_seconds);
         if (rc != 0) {
             if (error) {
                 *error = "Failed to fetch VibeVoice runner repository (git fetch exit " +
@@ -193,7 +263,8 @@ std::optional<std::string> resolve_vibevoice_runner(std::string* error) {
             }
             return std::nullopt;
         }
-        rc = run_command({"git", "-C", cache_dir.string(), "checkout", "-f", "FETCH_HEAD"});
+        rc = run_command({"git", "-C", cache_dir.string(), "checkout", "-f", "FETCH_HEAD"},
+                         git_timeout_seconds);
         if (rc != 0) {
             if (error) {
                 *error = "Failed to checkout VibeVoice runner repository (git checkout exit " +
@@ -212,14 +283,17 @@ std::optional<std::string> resolve_vibevoice_runner(std::string* error) {
         if (std::filesystem::exists(cache_dir)) {
             std::filesystem::remove(cache_dir);
         }
-        int rc = run_command({"git", "clone", "--depth", "1", "--branch", ref, repo, cache_dir.string()});
+        int rc = run_command({"git", "clone", "--depth", "1", "--branch", ref, repo, cache_dir.string()},
+                             git_timeout_seconds);
         if (rc != 0) {
             if (std::filesystem::exists(cache_dir)) {
                 std::filesystem::remove_all(cache_dir);
             }
-            rc = run_command({"git", "clone", "--depth", "1", repo, cache_dir.string()});
+            rc = run_command({"git", "clone", "--depth", "1", repo, cache_dir.string()},
+                             git_timeout_seconds);
             if (rc == 0) {
-                rc = run_command({"git", "-C", cache_dir.string(), "checkout", ref});
+                rc = run_command({"git", "-C", cache_dir.string(), "checkout", ref},
+                                 git_timeout_seconds);
             }
         }
         if (rc != 0) {

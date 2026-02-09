@@ -345,10 +345,12 @@ llmlbが必要なデータはllmlbからのポーリング/API呼び出しで取
 参照モデルは `specs/reference-models.md` を唯一の正とする。
 
 **前提**:
+
 - `xllm pull` を必ず使用（外部スクリプト不可）
 - config.json 依存は廃止。**環境変数のみ**で制御する
 
 **実行手順**:
+
 ```bash
 cmake -S . -B build -DBUILD_TESTS=OFF -DPORTABLE_BUILD=ON \
   -DBUILD_WITH_WHISPER=ON -DBUILD_WITH_SD=ON -DBUILD_WITH_ONNX=OFF
@@ -357,6 +359,7 @@ tests/e2e/real_models/run.sh
 ```
 
 **必須環境変数**:
+
 - `HF_TOKEN` (gatedモデルがある場合のみ)
 - `XLLM_E2E_TEXT_MODEL_REF`
 - `XLLM_E2E_VISION_MODEL_REF`
@@ -366,6 +369,7 @@ tests/e2e/real_models/run.sh
 - `XLLM_VIBEVOICE_RUNNER` (auto-download有効時は省略可)
 
 **任意/上書き**:
+
 - `XLLM_E2E_IMAGE_MODEL_FILE` (画像モデルの明示ファイル名)
 - `XLLM_E2E_ASR_MODEL_FILE` (ASRモデルの明示ファイル名)
 - `XLLM_E2E_IMAGE_STEPS` (default: 4)
@@ -373,12 +377,16 @@ tests/e2e/real_models/run.sh
 - `XLLM_E2E_TIMEOUT` (startup timeout seconds, default: 600)
 - `XLLM_E2E_STREAMING` (default: 1; set 0 to skip streaming checks)
 - `XLLM_VIBEVOICE_AUTO_DOWNLOAD` (default: 1; set 0 to require XLLM_VIBEVOICE_RUNNER)
-- `XLLM_VIBEVOICE_RUNNER_DIR` (default: platform cache dir; macOS `~/Library/Caches/xllm/vibevoice`, Linux `~/.cache/xllm/vibevoice`, Windows `%LOCALAPPDATA%\\xllm\\vibevoice`)
+- `XLLM_VIBEVOICE_RUNNER_DIR` (default: platform cache dir; macOS
+  `~/Library/Caches/xllm/vibevoice`, Linux `~/.cache/xllm/vibevoice`, Windows
+  `%LOCALAPPDATA%\\xllm\\vibevoice`)
 - `XLLM_VIBEVOICE_RUNNER_REPO` (default: `https://github.com/microsoft/VibeVoice.git`)
 - `XLLM_VIBEVOICE_RUNNER_REF` (default: `main`)
 - `XLLM_VIBEVOICE_RUNNER_PATH` (default: `demo/vibevoice_realtime_demo.py`)
+- `XLLM_VIBEVOICE_GIT_TIMEOUT_SECONDS` (default: 600; 0で無制限)
 
 **注意事項**:
+
 - VibeVoiceはPythonランナーを使用。`git` と必要なPython依存が必要。
 - Auto-downloadはネットワーク必須。`XLLM_VIBEVOICE_RUNNER` を指定すればダウンロードを回避可能。
 
