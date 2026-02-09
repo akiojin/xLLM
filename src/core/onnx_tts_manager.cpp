@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <optional>
+#include <random>
 #include <stdexcept>
 
 #if defined(_WIN32)
@@ -316,6 +317,29 @@ std::optional<std::string> resolve_vibevoice_runner(std::string* error) {
 }
 #endif
 
+std::optional<std::filesystem::path> make_unique_temp_dir(const std::string& prefix) {
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint64_t> dist;
+    auto base = std::filesystem::temp_directory_path();
+
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        uint64_t nonce = dist(gen);
+        auto name = prefix + "_" +
+                    std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                    "_" + std::to_string(nonce);
+        auto dir = base / name;
+        std::error_code ec;
+        if (std::filesystem::create_directories(dir, ec)) {
+            return dir;
+        }
+        if (!ec && std::filesystem::exists(dir)) {
+            continue;
+        }
+    }
+    return std::nullopt;
+}
+
 bool isVibeVoice(const std::string& model_path) {
     // Check for various forms of VibeVoice model specification
     return model_path == "vibevoice" ||
@@ -558,9 +582,12 @@ SpeechResult OnnxTtsManager::synthesize(
         std::string voice_prompt_path = voice_prompt_env ? voice_prompt_env : "";
 
         // Create a unique temporary directory for output
-        auto temp_dir = std::filesystem::temp_directory_path() /
-                        std::filesystem::unique_path("vibevoice_%%%%-%%%%-%%%%-%%%%");
-        std::filesystem::create_directories(temp_dir);
+        auto temp_dir_opt = make_unique_temp_dir("vibevoice");
+        if (!temp_dir_opt) {
+            result.error = "Failed to create temporary directory for VibeVoice output";
+            return result;
+        }
+        auto temp_dir = *temp_dir_opt;
         auto output_path = temp_dir / "output.wav";
 
         spdlog::info("Running VibeVoice synthesis: voice={}, device={}, text_len={}",
